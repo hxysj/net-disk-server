@@ -1,0 +1,24 @@
+[
+  {
+    "model": "User.Config",
+    "pk": 1,
+    "fields": {
+      "config_id":"netdiskconfig",
+      "user_space":524288000
+    }
+  },
+  {
+    "model": "User.User",
+    "pk": 2,
+    "fields": {
+      "user_id": "12esd9ujmdis1aDSDHUSIDN218njA__!!SAJ",
+      "nick_name": "admin123",
+      "email": "2413867596@qq.com",
+      "password": "96e79218965eb72c92a549dd5a330112",
+      "identity": true,
+      "total_space": 999999999,
+      "avatar": "avatar/default.png",
+      "create_time": "2024-10-12T22:02:00"
+    }
+  }
+]
