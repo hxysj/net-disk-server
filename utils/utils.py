@@ -6,7 +6,11 @@
 from FileInfo.models import FileInfo
 import uuid
 from django.core.cache import cache
-
+import io
+import base64
+from PIL import Image, ImageDraw, ImageFont
+import random
+import string
 
 # 检测请求的pid是否存在祖宗中  file_id 当前文件的id，pid被检测的id
 def check_file_id(file_id, pid, user):
@@ -102,3 +106,56 @@ def copy_file(obj, user, pid):
         cache.delete(f'file_user_list_${user.user_id}_${pid}')
     for file_child in obj['children']:
         copy_file(file_child, user, new_file_id)
+
+
+# 用于生成验证码
+def generate_captcha():
+    # 创建一个空白图像（白色背景，宽100px，高35px）
+    image = Image.new('RGB', (50, 15), color=(255, 255, 255))
+    draw = ImageDraw.Draw(image)
+
+    # 选择字体（根据系统，可能需要指定字体文件的路径）
+    try:
+        font = ImageFont.truetype("../static/font/GenShinGothic-Monospace-Regular.ttf", 50)
+    except IOError:
+        font = ImageFont.load_default()
+
+    # 随机生成验证码文本
+    captcha_text = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
+
+    # 计算文本的边界框，获取宽度和高度
+    bbox = draw.textbbox((0, 0), captcha_text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+
+    # 计算文本位置，确保居中
+    text_x = (image.width - text_width) // 2
+    text_y = (image.height - text_height) // 2
+
+    # 在图像上绘制验证码
+    draw.text((text_x, text_y), captcha_text, font=font, fill=(0, 0, 0))
+
+    # 添加背景噪点（干扰点）
+    for _ in range(50):
+        x = random.randint(0, image.width)
+        y = random.randint(0, image.height)
+        draw.point((x, y), fill=(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)))
+
+    # 添加干扰线
+    for _ in range(2):
+        x1 = random.randint(0, image.width)
+        y1 = random.randint(0, image.height)
+        x2 = random.randint(0, image.width)
+        y2 = random.randint(0, image.height)
+        draw.line([(x1, y1), (x2, y2)], fill=(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)),
+                  width=2)
+
+    # 将图像保存到内存中（用 BytesIO）
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format='PNG')
+
+    # 转换为 base64 编码
+    img_base64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
+
+    # 返回生成的验证码文本和图像的 Base64 数据
+    return captcha_text, img_base64

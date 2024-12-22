@@ -20,5 +20,9 @@ urlpatterns = [
     # 获取用户空间情况
     path('getUserSpace', views.get_user_space),
     # 找回密码
-    path('RetrievePassword', views.retrieve_password)
+    path('RetrievePassword', views.retrieve_password),
+    # 获取图形校验码
+    path('getVerificationCode', views.captcha_image),
+    # 校验验证码
+    path('checkVerificationCode', views.captcha_verify)
 ]
