@@ -12,6 +12,11 @@ import os
 from django.utils import timezone
 from django.core.cache import cache
 from django.core.mail import send_mail
+import random
+import string
+from django.http import JsonResponse
+from django.conf import settings
+from utils.utils import generate_captcha
 
 responseData = {
     'code': 200,
@@ -32,6 +37,40 @@ def make_token(username, user_id, avatar, identity, expire=3600 * 24):
         'exp': now_time + expire
     }
     return jwt.encode(payload_data, key, algorithm='HS256')
+
+
+# 视图函数：生成验证码并返回给前端
+def captcha_image(request):
+    captcha_text, img_base64 = generate_captcha()
+
+    # 生成一个唯一的 ID（可以是 UUID 或随机字符串）
+    captcha_id = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+
+    # 将验证码文本存入 Redis，设置过期时间（如 5 分钟）
+    cache.set(f'captcha:{captcha_id}', captcha_text, 300)
+
+    # 返回生成的验证码 ID 和图像的 Base64 数据
+    return JsonResponse({'captcha_id': captcha_id, 'captcha_image': img_base64})
+
+
+# 验证用户输入的验证码
+def captcha_verify(request):
+    # print(request.POST)
+    data = json.loads(request.body)
+    user_input = data.get('captcha_code')
+    captcha_id = data.get('captcha_id')
+
+    # 从 Redis 中获取验证码文本
+    captcha_text = cache.get(f'captcha:{captcha_id}')
+
+    if not captcha_text:
+        return JsonResponse({'message': '验证码已过期或无效'}, status=301)
+
+    # 验证用户输入的验证码与 Redis 中存储的验证码
+    if user_input and user_input.lower() == captcha_text.lower():
+        return JsonResponse({'status': 'success', 'message': '验证码验证成功'})
+    else:
+        return JsonResponse({'message': '验证码错误'}, status=301)
 
 
 # 登陆功能
@@ -57,7 +96,7 @@ def login(request):
         user.save()
         if remember:
             # 如果用户勾选了记住我，则保存token7天，否则保持1天
-            token = make_token(user.nick_name, user.user_id, user.avatar.name, user.identity, 60*60*24*7)
+            token = make_token(user.nick_name, user.user_id, user.avatar.name, user.identity, 60 * 60 * 24 * 7)
         else:
             token = make_token(user.nick_name, user.user_id, user.avatar.name, user.identity)
         cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
