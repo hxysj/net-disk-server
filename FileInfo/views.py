@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 import hashlib
+import shutil
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from tools.logging_dec import logging_check
 from .models import FileInfo
@@ -416,14 +417,17 @@ def upload_file(request):
     # -----------------------------------------
     # 保存的根本路径
     base_dir = str(settings.BASE_DIR)
-    path = os.path.join(base_dir, 'chunks', filename)
+    if not os.path.exists(os.path.join(base_dir, 'chunks', fileId)):
+        os.mkdir(os.path.join(base_dir, 'chunks', fileId))
+    path = os.path.join(base_dir, 'chunks', fileId, filename)
     # 保存分片
     # print(file_name)
     with open(path, 'wb') as f:
         for chunk in chunk.chunks():
             f.write(chunk)
     # 当分片都上传完成，合并分片
-    if int(chunk_number) + 1 == int(total_chunks):
+    if len(os.listdir(os.path.join(base_dir, 'chunks', fileId))) == int(total_chunks):
+    # if int(chunk_number) + 1 == int(total_chunks):
         # 所有分片上传完毕，开始合并文件
         change_file = threading.Thread(target=composite_file,
                                        args=(total_chunks, fileId, file_type, content_type, file_name, fileMd5))
@@ -467,17 +471,14 @@ def cancel_uploader(request):
         }, status=500)
     res_data = json.loads(request.body)
     file_id = res_data.get('fileId')
-    chunk_files = os.listdir(os.path.join(settings.BASE_DIR, 'chunks'))
-    # print(chunk_files)
-    for file_name in chunk_files:
-        if file_name.startswith(file_id):
-            try:
-                os.remove(os.path.join(settings.BASE_DIR, 'chunks', file_name))
-            except Exception as e:
-                print(e)
-                return JsonResponse({
-                    'error': 'cancel the uploader is error'
-                }, status=500)
+    chunk_file_dir = os.path.join(settings.BASE_DIR, 'chunks', file_id)
+    try:
+        shutil.rmtree(chunk_file_dir)  # 删除目录及其中的所有内容
+    except Exception as e:
+        print(e)
+        return JsonResponse({
+            'error':'cancel the uploader is error'
+        }, status=500)
     return JsonResponse({
         'code': 200,
         'status': 'success'
@@ -571,12 +572,20 @@ def composite_file(total_chunks, fileId, file_type, content_type, file_name, fil
     base_dir = str(settings.BASE_DIR)
     # 创建一个 BytesIO 对象来存储合并后的文件内容
     merged_file = BytesIO()
+    # 用来计算文件的md5值
+    # md5_hash = hashlib.md5()
     for i in range(int(total_chunks)):
-        chunk_path = f"{base_dir}/chunks/{fileId}_{i}"
+        chunk_path = f"{base_dir}/chunks/{fileId}/{fileId}_{i}"
         with open(chunk_path, 'rb') as chunk_file:
+            chunk_file_content = chunk_file.read()
+            # md5_hash.update(chunk_file_content)
             # 将分片内容写入Bytes IO对象
-            merged_file.write(chunk_file.read())
+            merged_file.write(chunk_file_content)
         os.remove(chunk_path)  # 删除分片文件
+    try:
+        shutil.rmtree(f"{base_dir}/chunks/{fileId}")
+    except Exception as e:
+        print(e)
     merged_file.seek(0)
 
     if cache.get(f'file_info_${fileId}'):
@@ -586,6 +595,7 @@ def composite_file(total_chunks, fileId, file_type, content_type, file_name, fil
             file = FileInfo.objects.get(file_id=fileId)
         except Exception as e:
             print('get file is error: %s' % e)
+
     # 计算出来的md5值不同
     # 合成成功后计算文件的md5值
     # md5_hash = hashlib.md5()
