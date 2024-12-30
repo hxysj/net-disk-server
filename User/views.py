@@ -4,7 +4,6 @@ import json
 import hashlib
 from .models import User, Config
 import uuid
-from django.conf import settings
 import time
 import jwt
 from tools.logging_dec import logging_check
