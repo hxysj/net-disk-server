@@ -26,9 +26,6 @@ from django.core.cache import cache
 import aspose.words as aw
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
-from cryptography.hazmat.primitives.ciphers import Cipher,algorithms,modes
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import padding
 
 
 # 获取主页显示的数据，分页显示
@@ -336,7 +333,6 @@ def del_file(request):
 def decrypt_data(encrypted_data):
     # 密钥和初始化向量（IV）
     encryption_key = b'secret-key123456'  # 确保是16字节的密钥
-    # iv = b'1234567890123456'  # 确保是16字节的IV
     iv = b'1234567890113456'  # 确保是16字节的IV
     # Base64 解码
     encrypted_data_bytes = base64.b64decode(encrypted_data)

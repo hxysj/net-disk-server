@@ -24,3 +24,4 @@ chunks
 *.njsproj
 *.sln
 *.sw?
+/venv/
