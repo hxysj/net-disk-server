@@ -4,6 +4,8 @@ import os
 import uuid
 import hashlib
 import shutil
+
+from Crypto.SelfTest.Cipher.test_CFB import file_name
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from tools.logging_dec import logging_check
 from .models import FileInfo
@@ -100,6 +102,16 @@ def loadDataList(request):
     return JsonResponse(result)
 
 
+# 校验目录名是否存在
+def check_file_name(name,pid,user,id):
+    if id:
+        return FileInfo.objects.filter(
+            file_name=name,
+            file_pid=pid,
+            user_id=user
+        ).exclude(file_id=id)
+    return FileInfo.objects.filter(file_name=name,file_pid=pid,user_id=user)
+
 # 创建目录
 @logging_check
 def newFoloder(request):
@@ -113,6 +125,11 @@ def newFoloder(request):
     data = json.loads(request.body)
     file_id = uuid.uuid4()
     # print('newfolder -- ', data)
+    if check_file_name(data.get('filename'),data.get('pid'),user,None):
+        return JsonResponse({
+            'code':4000,
+            'error':'同级下目录名称已存在，请更改目录名称！'
+        })
     FileInfo.objects.create(
         file_id=file_id,
         file_name=data.get('filename'),
@@ -154,6 +171,12 @@ def rename(request):
                 'code': 404,
                 'error': 'rename the file is error'
             })
+
+    if check_file_name(body['name'],file.file_pid,file.user_id,file.file_id):
+        return JsonResponse({
+            'code':4000,
+            'error':'同级下目录名称已存在，请更改目录名称！'
+        })
     file.file_name = body['name']
     file.save()
     # 重命名，删除之前的缓存
@@ -500,7 +523,7 @@ def cancel_uploader(request):
         }, status=500)
     res_data = json.loads(request.body)
     file_id = res_data.get('fileId')
-    cache.set(f'file_uploader_${file_id}', False, 60 * 10)
+    cache.set(f'file_uploader_${file_id}', 0, 60 * 10)
     chunk_file_dir = os.path.join(settings.BASE_DIR, 'chunks', file_id)
     try:
         shutil.rmtree(chunk_file_dir)  # 删除目录及其中的所有内容
@@ -514,6 +537,18 @@ def cancel_uploader(request):
         'status': 'success'
     })
 
+@logging_check
+def pause_uploader(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error':'pause the uploader is error'
+        },status=500)
+    file_id = request.GET.get('file_id')
+    cache.set(f'file_uploader_${file_id}', 2, 60 * 10)
+    return JsonResponse({
+        'code':200,
+        'status':'success'
+    })
 
 # 获得视频的内容，进行预览
 def get_video_info(request, file_id):

@@ -3,6 +3,7 @@ import json
 import os
 import threading
 
+from Crypto.SelfTest.Cipher.test_CFB import file_name
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from django.core.cache import cache
@@ -22,10 +23,16 @@ from django.core.files.uploadedfile import UploadedFile
 import subprocess
 from PIL import Image
 import io
+import re
 
 @sync_to_async
 def get_file_md5(md5):
     return list(FileInfo.objects.filter(file_md5=md5).values())
+
+@sync_to_async
+def get_same_file_name(name, user):
+    first_name,extension_name = os.path.splitext(name)
+    return list(FileInfo.objects.filter(file_name__regex=rf"^{first_name}(\((\d+)\))?{extension_name}",user_id=user).values())
 
 @sync_to_async
 def create_file_info(file_id, file_md5, user, file_pid, file_size, file_name, file_category, file_type,file_cover,file_path,status):
@@ -181,6 +188,24 @@ def create_video_file(merged_file, file_name, file_id):
         'upload_file': uploaded_file
     }
 
+
+def get_next_filename(file_list):
+    if not file_list:
+        return None
+    base_name,extension = os.path.splitext(file_list[0])
+    base_name= re.sub(r'\(\d+\)$','',base_name)
+    if (base_name+extension) not in file_list:
+        return f'{base_name}{extension}'
+    min_version = 1
+    file_list.remove(f'{base_name}{extension}')
+    version_list = set(re.search(r'\((\d+)\)', file).group(1)
+    for file in file_list
+    if re.search(r'\((\d+)\)', file))
+
+    while str(min_version) in version_list:
+        min_version += 1
+    return f'{base_name}({min_version}){extension}'
+
 class FileTransferConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         try:
@@ -213,12 +238,15 @@ class FileTransferConsumer(AsyncWebsocketConsumer):
             print('获取请求的数据出现错误：',e)
             return
 
-        # 取消请求
+        # 将上传文件的消息断开
         if not cache.get(f'file_uploader_${file_id}'):
             await self.send(json.dumps({'error':'取消请求'}))
             await self.close()
             return
 
+        if cache.get(f'file_uploader_${file_id}') == 2 or cache.get(f'file_uploader_${file_id}') == 3:
+            await self.close()
+            return
         if user.use_space + int(file_size) > user.total_space:
             await self.send(json.dumps({'code':4000,'error': '空间不足，请删除文件或拓展空间再尝试！'}))
             await self.close()
@@ -239,22 +267,30 @@ class FileTransferConsumer(AsyncWebsocketConsumer):
             file_category = 4
         else:
             file_category = 5
+        file_name_list = await get_same_file_name(file_name, user)
+        file_name_list = [file['file_name'] for file in file_name_list]
+        temp_name = get_next_filename(file_name_list)
+        if temp_name:
+            file_name = temp_name
 
         # 如果md5存在，则有相同文件，不需要进行二次上传
         if len(file_list) != 0:
-            print('有相同文件')
             file = file_list[0]
-            print(file)
+            cache.set(f'file_uploader_${file_id}', 3, 60 * 10)
             await change_user_size(user,file_size)
+            cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
+            cache.delete(f'user_list')
             await create_file_info(file_id, file_md5, user, file_pid, file_size, file_name, file_category, file_type,
                                    file.get('file_cover',''), file.get('file_path',''), 2)
+
             cache.delete(f'file_user_list_${user.user_id}_${file_pid}')
             cache.delete(f'admin_file_list_${file_pid}')
             await self.send(json.dumps({
                 'code': 10000,
                 'fileId': file_id,
                 'status': 'upload_seconds',
-                'index':chunk_number
+                'index':chunk_number,
+                'fileName':file_name
             }))
             return
         # 对切片文件进行保存
@@ -268,23 +304,27 @@ class FileTransferConsumer(AsyncWebsocketConsumer):
             chunk_data = decrypt_data(encrypted_data)
             with open(path, 'wb') as f:
                 f.write(chunk_data)
+            if not cache.get(f'file_chunk_count_{file_id}'):
+                count = 1
+                if os.path.exists(os.path.join(base_dir,'chunks',file_id)):
+                    count = len(os.listdir(os.path.join(base_dir,'chunks',file_id)))
+                cache.set(f'file_chunk_count_{file_id}',count, 60*60*24)
         except (ValueError,KeyError) as e:
             print(e)
             await self.send(json.dumps({'code':4000,'error':'非法请求！','index':chunk_number}))
             return
         if len(os.listdir(os.path.join(base_dir,'chunks',file_id))) == int(total_chunks):
             # 合并文件
-            print('合并文件')
             concat_file = threading.Thread(target=composite_file,args=(total_chunks,file_id,file_type,content_type,file_name,file_md5))
 
             await create_file_info(file_id, file_md5, user, file_pid, file_size, file_name, file_category, file_type,'','', 0)
             cache.delete(f'file_user_list_${user.user_id}_${file_pid}')
             cache.delete(f'admin_file_list_${file_pid}')
-            change_user_size(user,file_size)
+            await change_user_size(user,file_size)
             cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
             cache.delete(f'user_list')
             concat_file.start()
             status = 'upload_finish'
-        await self.send(json.dumps({'code':10000,'status':status,'fileId':file_id,'index':chunk_number}))
+        await self.send(json.dumps({'code':10000,'status':status,'fileId':file_id,'index':chunk_number,'fileName':file_name}))
         if status == 'upload_finish':
             await self.close()

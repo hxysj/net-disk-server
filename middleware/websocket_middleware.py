@@ -19,5 +19,5 @@ class WsTokenVerify:
         if cache.get(f'user_${user_id}'):
             user = cache.get(f'user_${user_id}')
             scope['user'] = user
-        cache.set(f'file_uploader_${file_id}', True, 60*10)
+        cache.set(f'file_uploader_${file_id}', 1, 60*10)
         return await self.app(scope, receive, send)
