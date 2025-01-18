@@ -1,3 +1,5 @@
+from email.policy import default
+
 from django.db import models
 
 
@@ -24,3 +26,16 @@ class Config(models.Model):
 
     class Meta:
         db_table = 'config'
+
+
+# user1 作为发起添加好友的用户
+# user2 作为接收是否添加好友的用户
+# status 状态： 0待通过 1拒接 2通过
+class Friend(models.Model):
+    friend_id = models.AutoField(primary_key=True)
+    user1 = models.ForeignKey(User, related_name='friend_user1', on_delete=models.CASCADE)
+    user2 = models.ForeignKey(User, related_name='friend_user2', on_delete=models.CASCADE)
+    status = models.IntegerField('状态', default=0)
+
+    class Meta:
+        db_table = 'friend'

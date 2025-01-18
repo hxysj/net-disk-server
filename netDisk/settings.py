@@ -43,18 +43,19 @@ INSTALLED_APPS = [
     'Recycle',
     'FileShare',
     'Share',
+    'Chat',
     'channels'
 ]
 ASGI_APPLICATION = 'netDisk.asgi.application'
 #
-# CHANNEL_LAYERS = {
-#     'default': {
-#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-#         'CONFIG': {
-#             "hosts": [('127.0.0.1', 6379)],
-#         },
-#     },
-# }
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
+    },
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -97,7 +98,10 @@ DATABASES = {
         'USER': 'root',
         'PASSWORD': '2003010230',
         'HOST': '127.0.0.1',
-        'PORT': '3306'
+        'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4'
+        }
     }
 }
 
@@ -111,8 +115,6 @@ CACHES = {
         }
     }
 }
-
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -194,7 +196,6 @@ FERNET_KEY = b'tTko3Sv6chullC72OhOTY5_2UjZFFqG6f7KE8SHVSGk='
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760
 
-
 CSRF_COOKIE_NAME = 'csrftoken'
 # CSRF_COOKIE_SECURE = True  # 仅在HTTPS连接中使用
 # CSRF_COOKIE_HTTPONLY = True
@@ -203,8 +204,7 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.qq.com'
 MEAIL_PORT = 25
 EMAIL_HOST_USER = "***"
-EMAIL_HOST_PASSWORD = "***" # 授权码   #授权码
+EMAIL_HOST_PASSWORD = "***" # 授权码  # 授权码
 EMAIL_USE_TLS = True
-#发送者
+# 发送者
 EMAIL_FROM = "netDisk-<***>" - <2413867596@qq.com>'
-

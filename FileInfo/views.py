@@ -4,8 +4,6 @@ import os
 import uuid
 import hashlib
 import shutil
-
-from Crypto.SelfTest.Cipher.test_CFB import file_name
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from tools.logging_dec import logging_check
 from .models import FileInfo
@@ -59,7 +57,7 @@ def loadDataList(request):
         cate_id = 5
     # 获取当前发出请求的用户
     user = request.my_user
-    fuzzy =  request.GET.get('fileNameFuzzy', False)
+    fuzzy = request.GET.get('fileNameFuzzy', False)
     if cache.get(f'file_user_list_${user.user_id}_${pid}'):
         # print('读取缓存')
         datalist = cache.get(f'file_user_list_${user.user_id}_${pid}')
@@ -103,14 +101,15 @@ def loadDataList(request):
 
 
 # 校验目录名是否存在
-def check_file_name(name,pid,user,id):
+def check_file_name(name, pid, user, id):
     if id:
         return FileInfo.objects.filter(
             file_name=name,
             file_pid=pid,
             user_id=user
         ).exclude(file_id=id)
-    return FileInfo.objects.filter(file_name=name,file_pid=pid,user_id=user)
+    return FileInfo.objects.filter(file_name=name, file_pid=pid, user_id=user)
+
 
 # 创建目录
 @logging_check
@@ -125,10 +124,10 @@ def newFoloder(request):
     data = json.loads(request.body)
     file_id = uuid.uuid4()
     # print('newfolder -- ', data)
-    if check_file_name(data.get('filename'),data.get('pid'),user,None):
+    if check_file_name(data.get('filename'), data.get('pid'), user, None):
         return JsonResponse({
-            'code':4000,
-            'error':'同级下目录名称已存在，请更改目录名称！'
+            'code': 4000,
+            'error': '同级下目录名称已存在，请更改目录名称！'
         })
     FileInfo.objects.create(
         file_id=file_id,
@@ -172,10 +171,10 @@ def rename(request):
                 'error': 'rename the file is error'
             })
 
-    if check_file_name(body['name'],file.file_pid,file.user_id,file.file_id):
+    if check_file_name(body['name'], file.file_pid, file.user_id, file.file_id):
         return JsonResponse({
-            'code':4000,
-            'error':'同级下目录名称已存在，请更改目录名称！'
+            'code': 4000,
+            'error': '同级下目录名称已存在，请更改目录名称！'
         })
     file.file_name = body['name']
     file.save()
@@ -528,7 +527,7 @@ def cancel_uploader(request):
     try:
         shutil.rmtree(chunk_file_dir)  # 删除目录及其中的所有内容
     except Exception as e:
-        print('取消上传：'+e)
+        print('取消上传：' + e)
         return JsonResponse({
             'error': 'cancel the uploader is error'
         }, status=500)
@@ -537,18 +536,20 @@ def cancel_uploader(request):
         'status': 'success'
     })
 
+
 @logging_check
 def pause_uploader(request):
     if request.method != 'GET':
         return JsonResponse({
-            'error':'pause the uploader is error'
-        },status=500)
+            'error': 'pause the uploader is error'
+        }, status=500)
     file_id = request.GET.get('file_id')
     cache.set(f'file_uploader_${file_id}', 2, 60 * 10)
     return JsonResponse({
-        'code':200,
-        'status':'success'
+        'code': 200,
+        'status': 'success'
     })
+
 
 # 获得视频的内容，进行预览
 def get_video_info(request, file_id):

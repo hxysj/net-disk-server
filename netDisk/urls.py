@@ -29,7 +29,8 @@ urlpatterns = [
     path('api/recycle/', include('Recycle.urls')),
     path('api/share/', include('FileShare.urls')),
     path('api/showShare/', include('Share.urls')),
-    path('api/admin/', include('admin.urls'))
+    path('api/admin/', include('admin.urls')),
+    path('api/chat/', include('Chat.urls'))
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -24,5 +24,9 @@ urlpatterns = [
     # 获取图形校验码
     path('getVerificationCode', views.captcha_image),
     # 校验验证码
-    path('checkVerificationCode', views.captcha_verify)
+    path('checkVerificationCode', views.captcha_verify),
+    # 搜索用户
+    path('searchUser', views.search_user),
+    # 添加好友
+    # path('addFriend')
 ]

@@ -1,8 +1,9 @@
-from django.shortcuts import render
-from django.http import JsonResponse
 import json
 import hashlib
-from .models import User, Config
+
+from urllib3 import request
+
+from .models import User, Config, Friend
 import uuid
 import time
 import jwt
@@ -16,6 +17,7 @@ import string
 from django.http import JsonResponse
 from django.conf import settings
 from utils.utils import generate_captcha
+from django.db.models import Q
 
 responseData = {
     'code': 200,
@@ -167,7 +169,6 @@ def register(request):
         }, status=500)
     pwd.update(password.encode())
     uid = uuid.uuid4()
-    print(uid)
     # 查找是否有相同的邮箱存在
     same_email = User.objects.filter(email=email)
     if len(same_email) != 0:
@@ -298,3 +299,70 @@ def get_user_space(request):
             'useSpace': user.use_space
         }
     })
+
+
+@logging_check
+def search_user(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error': 'search user is error'
+        }, status=400)
+    user_search_name = request.GET.get('search')
+    try:
+        find_user = User.objects.get(Q(nick_name=user_search_name) | Q(email=user_search_name))
+    except User.DoesNotExist:
+        return JsonResponse({
+            'code': 4000,
+            'message': 'not found user'
+        })
+    return JsonResponse({
+        'code': 1000,
+        'data': {
+            'avatar': find_user.avatar.url,
+            'nick_name': find_user.nick_name,
+            'email': find_user.email,
+            'user_id': find_user.user_id
+        }
+    })
+
+
+@logging_check
+def change_friend(request):
+    if request.method != 'POST':
+        return JsonResponse({
+            'error': 'add friend is error'
+        }, status=400)
+    data = json.loads(request.body)
+    f_id = data.get('id')
+    status = data.get("status", 0)
+    user_id = data.get('uid', 0)
+    user = User.objects.get(user_id=user_id)
+    if status == 0:
+        Friend.objects.create(user1=request.my_user, user2=user)
+        return JsonResponse({
+            'code': 10000,
+            'data': 'add friend is send success'
+        })
+    try:
+        friend_message = Friend.objects.get(friend_id=f_id)
+    except Exception as e:
+        print('add friend is error:', e)
+        return JsonResponse({
+            'code': 4000,
+            'message': 'add friend is error'
+        })
+    friend_message.status = status
+    friend_message.save()
+    return JsonResponse({
+        'code': 10000,
+        'data': 'change friend status is success'
+    })
+
+
+@logging_check
+def get_friend_message(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error': 'get friend message is error'
+        }, status=400)
+    user = request.my_user
