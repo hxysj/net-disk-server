@@ -1,6 +1,5 @@
-from email.policy import default
-
 from django.db import models
+import uuid
 
 
 class User(models.Model):
@@ -32,9 +31,24 @@ class Config(models.Model):
 # user2 作为接收是否添加好友的用户
 # status 状态： 0待通过 1拒接 2通过
 class Friend(models.Model):
-    friend_id = models.AutoField(primary_key=True)
-    user1 = models.ForeignKey(User, related_name='friend_user1', on_delete=models.CASCADE)
-    user2 = models.ForeignKey(User, related_name='friend_user2', on_delete=models.CASCADE)
+    friend_id = models.CharField(
+        '好友状态id',
+        primary_key=True,
+        max_length=40,
+        unique=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    user1 = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='user1_friend'
+    )
+    user2 = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='user2_friend'
+    )
     status = models.IntegerField('状态', default=0)
 
     class Meta:

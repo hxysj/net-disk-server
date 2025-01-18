@@ -28,5 +28,7 @@ urlpatterns = [
     # 搜索用户
     path('searchUser', views.search_user),
     # 添加好友
-    # path('addFriend')
+    path('changeFriend', views.change_friend),
+    # 获取好友添加信息
+    path('getFriendApply', views.get_friend_apply)
 ]
