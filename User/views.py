@@ -19,7 +19,7 @@ from django.conf import settings
 from utils.utils import generate_captcha
 from django.db.models import Q
 
-from .serializers import friendSerializer
+from .serializers import friendSerializer, FriendListSerializer
 
 responseData = {
     'code': 200,
@@ -338,8 +338,12 @@ def change_friend(request):
     f_id = data.get('id', 0)
     status = data.get("status", 0)
     user_id = data.get('uid', 0)
-    user = User.objects.get(user_id=user_id)
-    same_apply = Friend.objects.filter(Q(user1=request.my_user, user2=user) | Q(user1=user, user2=request.my_user))
+    if user_id != 0:
+        user = User.objects.get(user_id=user_id)
+    if f_id == 0:
+        same_apply = Friend.objects.filter(Q(user1=request.my_user, user2=user) | Q(user1=user, user2=request.my_user))
+    else:
+        same_apply = Friend.objects.filter(friend_id=f_id)
     if status == 0 and not len(same_apply):
         Friend.objects.create(user1=request.my_user, user2=user)
         return JsonResponse({
@@ -357,7 +361,7 @@ def change_friend(request):
         print('add friend is error:', e)
         return JsonResponse({
             'code': 4000,
-            'message': 'add friend is error'
+            'message': 'change friend status is error'
         })
     friend_message.status = status
     friend_message.save()
@@ -381,3 +385,37 @@ def get_friend_apply(request):
         'code': 10000,
         "list": friend_message_data
     })
+
+
+@logging_check
+def get_friend_list(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error': 'get friend list is error'
+        }, status=400)
+    user = request.my_user
+    friend_list = Friend.objects.filter(Q(user1=user, status=2) | Q(user2=user, status=2))
+    serializer_data = FriendListSerializer(friend_list, many=True, context={'user': user}).data
+
+    return JsonResponse({
+        'code': 10000,
+        'list': serializer_data
+    })
+
+
+# 删除好友
+@logging_check
+def delete_friend(request):
+    if request.method != 'POST':
+        return JsonResponse({
+            'error': 'delete your firend is error'
+        }, status=400)
+    user = request.my_user
+    delete_friend_id = request.GET.get('f_id')
+    try:
+        friend = Friend.objects.get(friend_id=delete_friend_id)
+    except Exception as e:
+        print(e)
+        return JsonResponse({
+            'error': 'get friend is error'
+        }, status=400)

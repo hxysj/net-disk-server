@@ -135,12 +135,16 @@ def create_session(request):
             user1=user1,
             user2=user2
         )
-    ConverSationsUser.objects.create(
-        conversation_id=conversation,
-        user_id=user2
-    )
+    try:
+        ConverSationsUser.objects.get(conversation_id=conversation, user_id=user2)
+    except Exception as e:
+        ConverSationsUser.objects.create(
+            conversation_id=conversation,
+            user_id=user2
+        )
 
     return JsonResponse({
         'code': 10000,
-        'message': 'create conversations is success'
+        'message': 'create conversations is success',
+        'conversation_id': conversation.conversation_id
     })

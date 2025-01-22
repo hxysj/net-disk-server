@@ -402,17 +402,17 @@ class ChatMessageConsumer(AsyncWebsocketConsumer):
             status=0
         )
         self.message_id = newMessage.message_id
-        
+
     # 判断是否有对话，如果发送消息了没有对话就创建
     @database_sync_to_async
     def check_user_user_session(self):
         conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
         try:
-            ConverSationsUser.objects.get(user_id=conversation.user1)
+            ConverSationsUser.objects.get(user_id=conversation.user1, conversation_id=conversation)
         except Exception as e:
             ConverSationsUser.objects.create(conversation_id=conversation, user_id=conversation.user1)
         try:
-            ConverSationsUser.objects.get(user_id=conversation.user2)
+            ConverSationsUser.objects.get(user_id=conversation.user2, conversation_id=conversation)
         except Exception as e:
             ConverSationsUser.objects.create(conversation_id=conversation, user_id=conversation.user2)
 

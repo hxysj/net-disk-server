@@ -1,5 +1,3 @@
-from email.policy import default
-
 from django.db import models
 from User.models import User
 from FileInfo.models import FileInfo

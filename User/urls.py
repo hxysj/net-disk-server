@@ -30,5 +30,9 @@ urlpatterns = [
     # 添加好友
     path('changeFriend', views.change_friend),
     # 获取好友添加信息
-    path('getFriendApply', views.get_friend_apply)
+    path('getFriendApply', views.get_friend_apply),
+    # 获取好友列表
+    path('getFriendList', views.get_friend_list),
+    # 删除好友
+    path('deleteFriend', views.delete_friend)
 ]
