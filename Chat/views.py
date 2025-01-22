@@ -60,9 +60,24 @@ def get_message(request):
             'error': 'get message for session id is error'
         }, status=400)
     session_id = request.GET.get('session_id')
+    user = request.my_user
     try:
+        # 获取会话对象
         conversation = ConverSations.objects.get(conversation_id=session_id)
-        message_list = Message.objects.filter(conversation_id=conversation).order_by('create_time')
+
+        # 根据当前用户选择相应的删除时间字段
+        delete_at = (
+            conversation.user1_delete_at if user.user_id == conversation.user1.user_id
+            else conversation.user2_delete_at
+        )
+
+        # 构建查询条件
+        filters = Q(conversation_id=conversation)
+        if delete_at:
+            filters &= Q(create_time__gt=delete_at)
+
+        # 获取消息列表
+        message_list = Message.objects.filter(filters).order_by('create_time')
     except Exception as e:
         print(f'get message is error: {e}')
         return JsonResponse({
@@ -148,3 +163,18 @@ def create_session(request):
         'message': 'create conversations is success',
         'conversation_id': conversation.conversation_id
     })
+
+
+@logging_check
+def clear_chat_record(request):
+    if request.method != 'POST':
+        return JsonResponse({
+            'error': 'clear chat record is error'
+        })
+    user = request.my_user
+    try:
+        conversations_user = ConverSationsUser.objects.get(user_id=user)
+    except Exception as e:
+        return JsonResponse({
+            'error': 'clear chat record is error'
+        })
