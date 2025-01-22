@@ -6,6 +6,7 @@ from tools.logging_dec import logging_check
 from Chat.models import ConverSationsUser, Message, ConverSations
 from django.db.models import Q
 from User.models import User
+from django.utils import timezone
 
 
 @logging_check
@@ -31,7 +32,7 @@ def get_session(request):
         noReadCount = Message.objects.filter(conversation_id=session['conversation_id'], status=0,
                                              user_id=session['user2_id'] if is_user1 else session['user1_id']).count()
         try:
-            lastMessage = Message.objects.latest('create_time')
+            lastMessage = Message.objects.filter(conversation_id=session['conversation_id']).latest('create_time')
             last_message_content = lastMessage.content
             last_message_time = lastMessage.create_time
         except Exception as e:
@@ -172,9 +173,24 @@ def clear_chat_record(request):
             'error': 'clear chat record is error'
         })
     user = request.my_user
+    friend_id = (json.loads(request.body)).get('uid')
+    friend = User.objects.get(user_id=friend_id)
+
     try:
-        conversations_user = ConverSationsUser.objects.get(user_id=user)
+        conversation = ConverSations.objects.get(Q(user1=user, user2=friend) | Q(user2=user, user1=friend))
+        conversations_user = ConverSationsUser.objects.get(conversation_id=conversation, user_id=user)
     except Exception as e:
+        print('clear_chat_record', e)
         return JsonResponse({
             'error': 'clear chat record is error'
         })
+    if user == conversation.user1:
+        conversation.user1_delete_at = timezone.now()
+    else:
+        conversation.user2_delete_at = timezone.now()
+    conversation.save()
+    conversations_user.delete()
+    return JsonResponse({
+        'code': 10000,
+        'status': 'success'
+    })
