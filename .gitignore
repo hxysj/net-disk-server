@@ -26,3 +26,4 @@ chunks
 *.sw?
 /venv/
 */migrations
+*/__pycache__
