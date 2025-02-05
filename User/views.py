@@ -1,8 +1,5 @@
 import json
 import hashlib
-
-from urllib3 import request
-
 from .models import User, Config, Friend
 import uuid
 import time
@@ -323,7 +320,8 @@ def search_user(request):
             'avatar': find_user.avatar.url,
             'nick_name': find_user.nick_name,
             'email': find_user.email,
-            'user_id': find_user.user_id
+            'user_id': find_user.user_id,
+            'is_self': True if request.my_user.email == find_user.email else False
         }
     })
 
@@ -341,7 +339,9 @@ def change_friend(request):
     if user_id != 0:
         user = User.objects.get(user_id=user_id)
     if f_id == 0:
-        same_apply = Friend.objects.filter(Q(user1=request.my_user, user2=user) | Q(user1=user, user2=request.my_user))
+        same_apply = Friend.objects.filter(
+            (Q(user1=request.my_user, user2=user) | Q(user1=user, user2=request.my_user)) & (
+                    Q(status=2) | Q(status=0)))
     else:
         same_apply = Friend.objects.filter(friend_id=f_id)
     if status == 0 and not len(same_apply):
@@ -378,7 +378,7 @@ def get_friend_apply(request):
             'error': 'get friend message is error'
         }, status=400)
     user = request.my_user
-    friend_message = Friend.objects.filter(Q(user1=user) | Q(user2=user))
+    friend_message = Friend.objects.filter(Q(user1=user) | Q(user2=user)).order_by('-create_time')
     friend_message_data = friendSerializer(friend_message, many=True).data
 
     return JsonResponse({
@@ -410,12 +410,17 @@ def delete_friend(request):
         return JsonResponse({
             'error': 'delete your firend is error'
         }, status=400)
-    user = request.my_user
-    delete_friend_id = request.GET.get('f_id')
+    delete_friend_id = (json.loads(request.body)).get('f_id')
     try:
         friend = Friend.objects.get(friend_id=delete_friend_id)
     except Exception as e:
-        print(e)
+        print('get friend is error', e)
         return JsonResponse({
             'error': 'get friend is error'
         }, status=400)
+    friend.status = 3
+    friend.save()
+    return JsonResponse({
+        'code': 10000,
+        'status': 'success'
+    })

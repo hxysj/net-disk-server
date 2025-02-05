@@ -29,7 +29,7 @@ class Config(models.Model):
 
 # user1 作为发起添加好友的用户
 # user2 作为接收是否添加好友的用户
-# status 状态： 0待通过 1拒接 2通过
+# status 状态： 0待通过 1拒接 2通过 3删除
 class Friend(models.Model):
     friend_id = models.CharField(
         '好友状态id',
@@ -50,6 +50,7 @@ class Friend(models.Model):
         related_name='user2_friend'
     )
     status = models.IntegerField('状态', default=0)
+    create_time = models.DateTimeField(auto_created=True, auto_now_add=True)
 
     class Meta:
         db_table = 'friend'

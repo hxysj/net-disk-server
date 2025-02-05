@@ -3,7 +3,7 @@ import json
 import os
 import threading
 import uuid
-
+from django.db.models import Q
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from django.core.cache import cache
@@ -16,6 +16,7 @@ django.setup()
 
 from FileInfo.models import FileInfo
 from Chat.models import Message, ConverSations, ConverSationsUser
+from User.models import Friend
 from utils.utils import get_file_type, decrypt_data
 from asgiref.sync import sync_to_async
 from io import BytesIO
@@ -370,6 +371,12 @@ class ChatMessageConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data=None, bytes_data=None):
         message = text_data
+
+        is_friend = await self.check_friend_status()
+        if not is_friend:
+            await self.close(code=4001)
+            return
+
         await self.save_message(message)
 
         await self.channel_layer.group_send(
@@ -402,6 +409,20 @@ class ChatMessageConsumer(AsyncWebsocketConsumer):
             status=0
         )
         self.message_id = newMessage.message_id
+
+    # 判断是否是好友关系，如果不是则不允许发送消息
+    @database_sync_to_async
+    def check_friend_status(self):
+        conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
+        try:
+            Friend.objects.get(
+                (Q(user1=conversation.user1, user2=conversation.user2) | Q(user1=conversation.user2,
+                                                                           user2=conversation.user1)) & Q(
+                    status=2))
+        except Exception as e:
+            print(e)
+            return False
+        return True
 
     # 判断是否有对话，如果发送消息了没有对话就创建
     @database_sync_to_async

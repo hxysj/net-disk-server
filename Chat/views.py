@@ -32,7 +32,12 @@ def get_session(request):
         noReadCount = Message.objects.filter(conversation_id=session['conversation_id'], status=0,
                                              user_id=session['user2_id'] if is_user1 else session['user1_id']).count()
         try:
-            lastMessage = Message.objects.filter(conversation_id=session['conversation_id']).latest('create_time')
+            # 获取会话对象
+            conversation = ConverSations.objects.get(conversation_id=session['conversation_id'])
+            delete_at = (conversation.user1_delete_at if is_user1 else conversation.user2_delete_at)
+            lastMessage = Message.objects.filter(
+                Q(conversation_id=session['conversation_id']) & Q(create_time__gt=delete_at)).latest(
+                'create_time')
             last_message_content = lastMessage.content
             last_message_time = lastMessage.create_time
         except Exception as e:
@@ -182,7 +187,9 @@ def clear_chat_record(request):
     except Exception as e:
         print('clear_chat_record', e)
         return JsonResponse({
-            'error': 'clear chat record is error'
+            'code': 10000,
+            'status': 'success',
+            'message': 'not found message to delete'
         })
     if user == conversation.user1:
         conversation.user1_delete_at = timezone.now()
@@ -190,6 +197,7 @@ def clear_chat_record(request):
         conversation.user2_delete_at = timezone.now()
     conversation.save()
     conversations_user.delete()
+    Message.objects.filter(conversation_id=conversation, status=0).exclude(user_id=request.my_user).update(status=1)
     return JsonResponse({
         'code': 10000,
         'status': 'success'
