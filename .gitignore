@@ -25,3 +25,4 @@ chunks
 *.sln
 *.sw?
 /venv/
+*/migrations
