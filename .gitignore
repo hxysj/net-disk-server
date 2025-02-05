@@ -24,3 +24,5 @@ chunks
 *.njsproj
 *.sln
 *.sw?
+*/migrations
+.history
