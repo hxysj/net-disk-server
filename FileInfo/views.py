@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 import hashlib
+import shutil
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from tools.logging_dec import logging_check
 from .models import FileInfo
@@ -23,6 +24,9 @@ import base64
 from FileShare.models import FileShare
 from django.core.cache import cache
 import aspose.words as aw
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+
 
 # 获取主页显示的数据，分页显示
 @logging_check
@@ -53,7 +57,7 @@ def loadDataList(request):
         cate_id = 5
     # 获取当前发出请求的用户
     user = request.my_user
-    fuzzy =  request.GET.get('fileNameFuzzy', False)
+    fuzzy = request.GET.get('fileNameFuzzy', False)
     if cache.get(f'file_user_list_${user.user_id}_${pid}'):
         # print('读取缓存')
         datalist = cache.get(f'file_user_list_${user.user_id}_${pid}')
@@ -96,6 +100,17 @@ def loadDataList(request):
     return JsonResponse(result)
 
 
+# 校验目录名是否存在
+def check_file_name(name, pid, user, id):
+    if id:
+        return FileInfo.objects.filter(
+            file_name=name,
+            file_pid=pid,
+            user_id=user
+        ).exclude(file_id=id)
+    return FileInfo.objects.filter(file_name=name, file_pid=pid, user_id=user)
+
+
 # 创建目录
 @logging_check
 def newFoloder(request):
@@ -109,6 +124,11 @@ def newFoloder(request):
     data = json.loads(request.body)
     file_id = uuid.uuid4()
     # print('newfolder -- ', data)
+    if check_file_name(data.get('filename'), data.get('pid'), user, None):
+        return JsonResponse({
+            'code': 4000,
+            'error': '同级下目录名称已存在，请更改目录名称！'
+        })
     FileInfo.objects.create(
         file_id=file_id,
         file_name=data.get('filename'),
@@ -150,6 +170,12 @@ def rename(request):
                 'code': 404,
                 'error': 'rename the file is error'
             })
+
+    if check_file_name(body['name'], file.file_pid, file.user_id, file.file_id):
+        return JsonResponse({
+            'code': 4000,
+            'error': '同级下目录名称已存在，请更改目录名称！'
+        })
     file.file_name = body['name']
     file.save()
     # 重命名，删除之前的缓存
@@ -325,6 +351,21 @@ def del_file(request):
     })
 
 
+# 解密文件块函数
+def decrypt_data(encrypted_data):
+    # 密钥和初始化向量（IV）
+    encryption_key = b'secret-key123456'  # 确保是16字节的密钥
+    iv = b'1234567890113456'  # 确保是16字节的IV
+    # Base64 解码
+    encrypted_data_bytes = base64.b64decode(encrypted_data)
+    # 创建 AES 解密器
+    cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
+    # 解密数据并去除填充
+    decrypted_data = unpad(cipher.decrypt(encrypted_data_bytes), AES.block_size)
+
+    return decrypted_data
+
+
 # 文件分片上传
 @logging_check
 def upload_file(request):
@@ -350,7 +391,8 @@ def upload_file(request):
     file_name = request.POST.get('fileName')
     # w文件的总大小
     file_size = request.POST.get('fileSize')
-    print(file_size, user.use_space, user.total_space)
+    cache.set(f'file_uploader_${fileId}', True, 60 * 10)
+    # print(file_size, user.use_space, user.total_space)
     if user.use_space + int(file_size) > user.total_space:
         return JsonResponse({
             'code': 404,
@@ -370,7 +412,6 @@ def upload_file(request):
             'code': 404,
             'error': 'upload file is error'
         })
-    content_type = chunk.content_type
     # 获得文件的类型
     file_type = get_file_type(file_name)
 
@@ -402,7 +443,6 @@ def upload_file(request):
             file_type=file_type,
             status=2
         )
-        # print('12323-存在了')
         cache.delete(f'file_user_list_${user.user_id}_${file_Pid}')
         cache.delete(f'admin_file_list_${file_Pid}')
         return JsonResponse({
@@ -416,14 +456,29 @@ def upload_file(request):
     # -----------------------------------------
     # 保存的根本路径
     base_dir = str(settings.BASE_DIR)
-    path = os.path.join(base_dir, 'chunks', filename)
+    if not os.path.exists(os.path.join(base_dir, 'chunks', fileId)):
+        os.mkdir(os.path.join(base_dir, 'chunks', fileId))
+    path = os.path.join(base_dir, 'chunks', fileId, filename)
     # 保存分片
-    # print(file_name)
-    with open(path, 'wb') as f:
-        for chunk in chunk.chunks():
-            f.write(chunk)
+    # 读取上传文件的内容
+    encrypted_data = chunk.read()
+    # Base64 解码密文
+    encrypted_data = encrypted_data.decode('utf-8')
+    try:
+        chunk_data = decrypt_data(encrypted_data)
+        # 判断请求是否取消
+        if not cache.get(f'file_uploader_${fileId}'):
+            return JsonResponse({'error': '取消请求！'}, status=409)
+        # 将解密后的数据保存为文件
+        with open(path, 'wb') as f:
+            f.write(chunk_data)
+    except (ValueError, KeyError) as e:
+        print(e)
+        return JsonResponse({'error': '非法请求！'}, status=500)
+
     # 当分片都上传完成，合并分片
-    if int(chunk_number) + 1 == int(total_chunks):
+    content_type = request.POST.get('fileType')
+    if len(os.listdir(os.path.join(base_dir, 'chunks', fileId))) == int(total_chunks):
         # 所有分片上传完毕，开始合并文件
         change_file = threading.Thread(target=composite_file,
                                        args=(total_chunks, fileId, file_type, content_type, file_name, fileMd5))
@@ -467,17 +522,29 @@ def cancel_uploader(request):
         }, status=500)
     res_data = json.loads(request.body)
     file_id = res_data.get('fileId')
-    chunk_files = os.listdir(os.path.join(settings.BASE_DIR, 'chunks'))
-    # print(chunk_files)
-    for file_name in chunk_files:
-        if file_name.startswith(file_id):
-            try:
-                os.remove(os.path.join(settings.BASE_DIR, 'chunks', file_name))
-            except Exception as e:
-                print(e)
-                return JsonResponse({
-                    'error': 'cancel the uploader is error'
-                }, status=500)
+    cache.set(f'file_uploader_${file_id}', 0, 60 * 10)
+    chunk_file_dir = os.path.join(settings.BASE_DIR, 'chunks', file_id)
+    try:
+        shutil.rmtree(chunk_file_dir)  # 删除目录及其中的所有内容
+    except Exception as e:
+        print('取消上传：' + e)
+        return JsonResponse({
+            'error': 'cancel the uploader is error'
+        }, status=500)
+    return JsonResponse({
+        'code': 200,
+        'status': 'success'
+    })
+
+
+@logging_check
+def pause_uploader(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error': 'pause the uploader is error'
+        }, status=500)
+    file_id = request.GET.get('file_id')
+    cache.set(f'file_uploader_${file_id}', 2, 60 * 10)
     return JsonResponse({
         'code': 200,
         'status': 'success'
@@ -571,12 +638,20 @@ def composite_file(total_chunks, fileId, file_type, content_type, file_name, fil
     base_dir = str(settings.BASE_DIR)
     # 创建一个 BytesIO 对象来存储合并后的文件内容
     merged_file = BytesIO()
+    # 用来计算文件的md5值
+    # md5_hash = hashlib.md5()
     for i in range(int(total_chunks)):
-        chunk_path = f"{base_dir}/chunks/{fileId}_{i}"
+        chunk_path = f"{base_dir}/chunks/{fileId}/{fileId}_{i}"
         with open(chunk_path, 'rb') as chunk_file:
+            chunk_file_content = chunk_file.read()
+            # md5_hash.update(chunk_file_content)
             # 将分片内容写入Bytes IO对象
-            merged_file.write(chunk_file.read())
+            merged_file.write(chunk_file_content)
         os.remove(chunk_path)  # 删除分片文件
+    try:
+        shutil.rmtree(f"{base_dir}/chunks/{fileId}")
+    except Exception as e:
+        print(e)
     merged_file.seek(0)
 
     if cache.get(f'file_info_${fileId}'):
@@ -586,6 +661,7 @@ def composite_file(total_chunks, fileId, file_type, content_type, file_name, fil
             file = FileInfo.objects.get(file_id=fileId)
         except Exception as e:
             print('get file is error: %s' % e)
+
     # 计算出来的md5值不同
     # 合成成功后计算文件的md5值
     # md5_hash = hashlib.md5()

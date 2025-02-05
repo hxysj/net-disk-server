@@ -24,5 +24,15 @@ urlpatterns = [
     # 获取图形校验码
     path('getVerificationCode', views.captcha_image),
     # 校验验证码
-    path('checkVerificationCode', views.captcha_verify)
+    path('checkVerificationCode', views.captcha_verify),
+    # 搜索用户
+    path('searchUser', views.search_user),
+    # 添加好友
+    path('changeFriend', views.change_friend),
+    # 获取好友添加信息
+    path('getFriendApply', views.get_friend_apply),
+    # 获取好友列表
+    path('getFriendList', views.get_friend_list),
+    # 删除好友
+    path('deleteFriend', views.delete_friend)
 ]

@@ -32,6 +32,8 @@ urlpatterns = [
     # 创建下载链接
     path('createDownloadUrl/<str:file_id>', views.create_download_url),
     # 下载文件
-    path('download/<str:url_base64>/<str:filename>', views.download)
+    path('download/<str:url_base64>/<str:filename>', views.download),
+    #暂停上传文件
+    path('pauseUploader', views.pause_uploader)
 ]
 

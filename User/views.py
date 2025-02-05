@@ -1,10 +1,7 @@
-from django.shortcuts import render
-from django.http import JsonResponse
 import json
 import hashlib
-from .models import User, Config
+from .models import User, Config, Friend
 import uuid
-from django.conf import settings
 import time
 import jwt
 from tools.logging_dec import logging_check
@@ -17,6 +14,9 @@ import string
 from django.http import JsonResponse
 from django.conf import settings
 from utils.utils import generate_captcha
+from django.db.models import Q
+
+from .serializers import friendSerializer, FriendListSerializer
 
 responseData = {
     'code': 200,
@@ -168,7 +168,6 @@ def register(request):
         }, status=500)
     pwd.update(password.encode())
     uid = uuid.uuid4()
-    print(uid)
     # 查找是否有相同的邮箱存在
     same_email = User.objects.filter(email=email)
     if len(same_email) != 0:
@@ -298,4 +297,130 @@ def get_user_space(request):
             'totalSpace': user.total_space,
             'useSpace': user.use_space
         }
+    })
+
+
+@logging_check
+def search_user(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error': 'search user is error'
+        }, status=400)
+    user_search_name = request.GET.get('search')
+    try:
+        find_user = User.objects.get(Q(nick_name=user_search_name) | Q(email=user_search_name))
+    except User.DoesNotExist:
+        return JsonResponse({
+            'code': 4000,
+            'message': 'not found user'
+        })
+    return JsonResponse({
+        'code': 1000,
+        'data': {
+            'avatar': find_user.avatar.url,
+            'nick_name': find_user.nick_name,
+            'email': find_user.email,
+            'user_id': find_user.user_id,
+            'is_self': True if request.my_user.email == find_user.email else False
+        }
+    })
+
+
+@logging_check
+def change_friend(request):
+    if request.method != 'POST':
+        return JsonResponse({
+            'error': 'add friend is error'
+        }, status=400)
+    data = json.loads(request.body)
+    f_id = data.get('id', 0)
+    status = data.get("status", 0)
+    user_id = data.get('uid', 0)
+    if user_id != 0:
+        user = User.objects.get(user_id=user_id)
+    if f_id == 0:
+        same_apply = Friend.objects.filter(
+            (Q(user1=request.my_user, user2=user) | Q(user1=user, user2=request.my_user)) & (
+                    Q(status=2) | Q(status=0)))
+    else:
+        same_apply = Friend.objects.filter(friend_id=f_id)
+    if status == 0 and not len(same_apply):
+        Friend.objects.create(user1=request.my_user, user2=user)
+        return JsonResponse({
+            'code': 10000,
+            'data': 'add friend is send success'
+        })
+    elif status == 0 and len(same_apply):
+        return JsonResponse({
+            'code': 10000,
+            'data': 'add friend is send success'
+        })
+    try:
+        friend_message = Friend.objects.get(friend_id=f_id)
+    except Exception as e:
+        print('add friend is error:', e)
+        return JsonResponse({
+            'code': 4000,
+            'message': 'change friend status is error'
+        })
+    friend_message.status = status
+    friend_message.save()
+    return JsonResponse({
+        'code': 10000,
+        'data': 'change friend status is success'
+    })
+
+
+@logging_check
+def get_friend_apply(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error': 'get friend message is error'
+        }, status=400)
+    user = request.my_user
+    friend_message = Friend.objects.filter(Q(user1=user) | Q(user2=user)).order_by('-create_time')
+    friend_message_data = friendSerializer(friend_message, many=True).data
+
+    return JsonResponse({
+        'code': 10000,
+        "list": friend_message_data
+    })
+
+
+@logging_check
+def get_friend_list(request):
+    if request.method != 'GET':
+        return JsonResponse({
+            'error': 'get friend list is error'
+        }, status=400)
+    user = request.my_user
+    friend_list = Friend.objects.filter(Q(user1=user, status=2) | Q(user2=user, status=2))
+    serializer_data = FriendListSerializer(friend_list, many=True, context={'user': user}).data
+
+    return JsonResponse({
+        'code': 10000,
+        'list': serializer_data
+    })
+
+
+# 删除好友
+@logging_check
+def delete_friend(request):
+    if request.method != 'POST':
+        return JsonResponse({
+            'error': 'delete your firend is error'
+        }, status=400)
+    delete_friend_id = (json.loads(request.body)).get('f_id')
+    try:
+        friend = Friend.objects.get(friend_id=delete_friend_id)
+    except Exception as e:
+        print('get friend is error', e)
+        return JsonResponse({
+            'error': 'get friend is error'
+        }, status=400)
+    friend.status = 3
+    friend.save()
+    return JsonResponse({
+        'code': 10000,
+        'status': 'success'
     })

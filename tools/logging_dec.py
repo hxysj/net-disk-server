@@ -33,7 +33,7 @@ def logging_check(func):
             user = cache.get(f'user_${user_id}')
         else:
             user = User.objects.get(user_id=user_id)
-            cache.set(f'user_${user_id}', user, 60*60)
+            cache.set(f'user_${user_id}', user, 60 * 60)
         request.my_user = user
 
         return func(request, *args, **kwargs)
@@ -69,7 +69,7 @@ def code_check(func):
         else:
             try:
                 share_file = FileShare.objects.get(share_id=share_id, code=code)
-                cache.set(f'share_file_info_${share_id}', share_file, 60*60)
+                cache.set(f'share_file_info_${share_id}', share_file, 60 * 60)
             except Exception as e:
                 print('jwt code decode error is %s' % e)
                 result = {'code': 403, 'error': 'please input the code'}

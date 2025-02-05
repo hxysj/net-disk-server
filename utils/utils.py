@@ -11,6 +11,9 @@ import base64
 from PIL import Image, ImageDraw, ImageFont
 import random
 import string
+import os
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
 # 检测请求的pid是否存在祖宗中  file_id 当前文件的id，pid被检测的id
 def check_file_id(file_id, pid, user):
@@ -159,3 +162,46 @@ def generate_captcha():
 
     # 返回生成的验证码文本和图像的 Base64 数据
     return captcha_text, img_base64
+
+
+# 判断文件是什么类型
+def get_file_type(filename):
+    _, ext = os.path.splitext(filename)
+    ext = ext.lower()  # 转换为小写以确保匹配
+    # print('------------file type is :----',filename)
+    # 根据扩展名判断文件类型
+    if ext in ('.mp4', '.avi', '.mov', '.wmv', '.flv'):
+        return 1
+    elif ext in ('.mp3', '.wav', '.aac', '.ogg'):
+        return 2
+    elif ext in ('.jpg', '.jpeg', '.png', '.gif', '.bmp'):
+        return 3
+    elif ext == '.pdf':
+        return 4
+    elif ext == '.doc' or ext == '.docx':
+        return 5
+    elif ext == '.xls' or ext == '.xlsx':
+        return 6
+    elif ext == '.txt':
+        return 7
+    elif ext in ('.py', '.java', '.css', '.js', '.html', '.cpp', '.c', '.rb', '.sh'):
+        return 8
+    elif ext == '.zip':
+        return 9
+    else:
+        return 10
+
+
+# 解密文件块函数
+def decrypt_data(encrypted_data):
+    # 密钥和初始化向量（IV）
+    encryption_key = b'secret-key123456'  # 确保是16字节的密钥
+    iv = b'1234567890113456'  # 确保是16字节的IV
+    # Base64 解码
+    encrypted_data_bytes = base64.b64decode(encrypted_data)
+    # 创建 AES 解密器
+    cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
+    # 解密数据并去除填充
+    decrypted_data = unpad(cipher.decrypt(encrypted_data_bytes), AES.block_size)
+
+    return decrypted_data
