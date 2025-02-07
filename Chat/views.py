@@ -37,7 +37,7 @@ def get_session(request):
             conversation = ConverSations.objects.get(conversation_id=session['conversation_id'])
             delete_at = (conversation.user1_delete_at if is_user1 else conversation.user2_delete_at)
             lastMessage = Message.objects.filter(
-                Q(conversation_id=session['conversation_id']) & Q(create_time__gt=delete_at)).latest(
+                Q(conversation_id=conversation) & (Q(create_time__gt=delete_at) if delete_at else Q())).latest(
                 'create_time')
             last_message_content = lastMessage.content
             last_message_time = lastMessage.create_time
