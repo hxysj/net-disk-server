@@ -150,5 +150,5 @@ def cancel_share(request):
 
 # 生成随机提取码
 def random_code():
-    random_string = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=5))
     return random_string

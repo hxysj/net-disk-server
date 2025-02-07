@@ -58,8 +58,7 @@ def code_check(func):
             return JsonResponse(result, status=403)
         # 解析cookie中的 提取码code
         code = res['code']
-        # print(code)
-        share_id = res['shareId']
+        share_id = request.GET.get('shareId')
         # print(share_id)
         if cache.get(f'share_file_info_${share_id}'):
             share_file = cache.get(f'share_file_info_${share_id}')
@@ -74,6 +73,7 @@ def code_check(func):
                 print('jwt code decode error is %s' % e)
                 result = {'code': 403, 'error': 'please input the code'}
                 return JsonResponse(result, status=403)
+        # print(share_file.code)
         request.share_code = code
 
         return func(request, *args, **kwargs)

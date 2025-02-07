@@ -7,6 +7,7 @@ from Chat.models import ConverSationsUser, Message, ConverSations
 from django.db.models import Q
 from User.models import User
 from django.utils import timezone
+from django.core.cache import cache
 
 
 @logging_check
@@ -36,7 +37,7 @@ def get_session(request):
             conversation = ConverSations.objects.get(conversation_id=session['conversation_id'])
             delete_at = (conversation.user1_delete_at if is_user1 else conversation.user2_delete_at)
             lastMessage = Message.objects.filter(
-                Q(conversation_id=session['conversation_id']) & Q(create_time__gt=delete_at)).latest(
+                Q(conversation_id=conversation) & (Q(create_time__gt=delete_at) if delete_at else Q())).latest(
                 'create_time')
             last_message_content = lastMessage.content
             last_message_time = lastMessage.create_time
@@ -69,7 +70,10 @@ def get_message(request):
     user = request.my_user
     try:
         # 获取会话对象
-        conversation = ConverSations.objects.get(conversation_id=session_id)
+        conversation = cache.get(f'conversation_data_{session_id}')
+        if not conversation:
+            conversation = ConverSations.objects.get(conversation_id=session_id)
+            cache.set(f'conversation_data_{session_id}', conversation, 60 * 60 * 24 * 7)
 
         # 根据当前用户选择相应的删除时间字段
         delete_at = (
@@ -81,9 +85,11 @@ def get_message(request):
         filters = Q(conversation_id=conversation)
         if delete_at:
             filters &= Q(create_time__gt=delete_at)
-
-        # 获取消息列表
-        message_list = Message.objects.filter(filters).order_by('create_time')
+        message_list = cache.get(f'message_list_{user.user_id}_{session_id}')
+        if not message_list:
+            # 获取消息列表
+            message_list = Message.objects.filter(filters).order_by('create_time')
+            cache.set(f'message_list_{user.user_id}_{session_id}', message_list, 60 * 60 * 24 * 7)
     except Exception as e:
         print(f'get message is error: {e}')
         return JsonResponse({
@@ -91,16 +97,15 @@ def get_message(request):
         }, status=400)
     message_list = MessageSerializers(message_list, many=True).data
     # print(66, message_list)
-    num = int(request.GET.get('num', 0))  # 默认读取尾部10条
-    limit = 20  # 每次读取20条数据
-
+    num = int(request.GET.get('num', 0))  # 默认读取尾部
+    limit = 20  # 每次读取数据的条数
     # 计算起始和结束位置
-    start = -(limit * (num + 1))  # 计算查询的起始位置
-    end = -limit * num  # 计算查询的结束位置
-    if end == 0:
-        show_list = message_list[-20:]
+    start = -num  # 计算查询的起始位置
+    end = -(limit + num)  # 计算查询的结束位置
+    if start == 0:
+        show_list = message_list[-limit:]
     else:
-        show_list = message_list[start:end]
+        show_list = message_list[end:start]
     return JsonResponse({
         'code': 200,
         'list': show_list
@@ -116,13 +121,17 @@ def set_read_message(request):
     data = json.loads(request.body)
     conversation_id = data.get('session_id')
     try:
-        conversation = ConverSations.objects.get(conversation_id=conversation_id)
+        conversation = cache.get(f'conversation_data_{conversation_id}')
+        if not conversation:
+            conversation = ConverSations.objects.get(conversation_id=conversation_id)
+            cache.set(f'conversation_data_{conversation_id}', conversation, 60 * 60 * 24 * 7)
     except Exception as e:
         print(e)
         return JsonResponse({
             'error': 'set message is read is error'
         }, status=400)
     Message.objects.filter(conversation_id=conversation, status=0).exclude(user_id=request.my_user).update(status=1)
+    cache.delete(f'message_list_{request.my_user.user_id}_{conversation_id}')
     return JsonResponse({
         'code': 1000,
         'status': 'success'
@@ -156,13 +165,20 @@ def create_session(request):
             user1=user1,
             user2=user2
         )
+        cache.set(f'conversation_data_{session_id}', conversation, 60 * 60 * 24 * 7)
+
     try:
-        ConverSationsUser.objects.get(conversation_id=conversation, user_id=user2)
+        if not cache.get(f'conversations_user_{user2.user_id}_{conversation.conversation_id}'):
+            conversation_user = ConverSationsUser.objects.get(conversation_id=conversation, user_id=user2)
+            cache.set(f'conversations_user_{user2.user_id}_{conversation.conversation_id}', conversation_user,
+                      60 * 60 * 24 * 7)
     except Exception as e:
-        ConverSationsUser.objects.create(
+        conversation_user = ConverSationsUser.objects.create(
             conversation_id=conversation,
             user_id=user2
         )
+        cache.set(f'conversations_user_{user2.user_id}_{conversation.conversation_id}', conversation_user,
+                  60 * 60 * 24 * 7)
 
     return JsonResponse({
         'code': 10000,
@@ -183,7 +199,11 @@ def clear_chat_record(request):
 
     try:
         conversation = ConverSations.objects.get(Q(user1=user, user2=friend) | Q(user2=user, user1=friend))
-        conversations_user = ConverSationsUser.objects.get(conversation_id=conversation, user_id=user)
+        conversations_user = cache.get(f'conversations_user_{user.user_id}_{conversation.conversation_id}')
+        if not conversations_user:
+            conversations_user = ConverSationsUser.objects.get(conversation_id=conversation, user_id=user)
+            cache.set(f'conversations_user_{user.user_id}_{conversation.conversation_id}', conversations_user,
+                      60 * 60 * 24 * 7)
     except Exception as e:
         print('clear_chat_record', e)
         return JsonResponse({
@@ -197,7 +217,10 @@ def clear_chat_record(request):
         conversation.user2_delete_at = timezone.now()
     conversation.save()
     conversations_user.delete()
+    cache.delete(f'conversation_data_{conversation.conversation_id}')
+    cache.delete(f'conversations_user_{user.user_id}_{conversation.conversation_id}')
     Message.objects.filter(conversation_id=conversation, status=0).exclude(user_id=request.my_user).update(status=1)
+    cache.delete(f'message_list_{user.user_id}_{conversation.conversation_id}')
     return JsonResponse({
         'code': 10000,
         'status': 'success'

@@ -346,6 +346,10 @@ def change_friend(request):
         same_apply = Friend.objects.filter(friend_id=f_id)
     if status == 0 and not len(same_apply):
         Friend.objects.create(user1=request.my_user, user2=user)
+        cache.delete(f'friend_message_{request.my_user.user_id}')
+        cache.delete(f'friend_message_{user_id}')
+        cache.delete(f'friend_list_{user_id}')
+        cache.delete(f'friend_list_{request.my_user.user_id}')
         return JsonResponse({
             'code': 10000,
             'data': 'add friend is send success'
@@ -365,6 +369,10 @@ def change_friend(request):
         })
     friend_message.status = status
     friend_message.save()
+    cache.delete(f'friend_message_{friend_message.user1.user_id}')
+    cache.delete(f'friend_message_{friend_message.user2.user_id}')
+    cache.delete(f'friend_list_{friend_message.user1.user_id}')
+    cache.delete(f'friend_list_{friend_message.user2.user_id}')
     return JsonResponse({
         'code': 10000,
         'data': 'change friend status is success'
@@ -378,7 +386,11 @@ def get_friend_apply(request):
             'error': 'get friend message is error'
         }, status=400)
     user = request.my_user
-    friend_message = Friend.objects.filter(Q(user1=user) | Q(user2=user)).order_by('-create_time')
+
+    friend_message = cache.get(f'friend_message_{user.user_id}')
+    if not friend_message:
+        friend_message = Friend.objects.filter(Q(user1=user) | Q(user2=user)).order_by('-create_time')
+        cache.set(f'friend_message_{user.user_id}', friend_message, 60 * 60 * 24 * 7)
     friend_message_data = friendSerializer(friend_message, many=True).data
 
     return JsonResponse({
@@ -394,7 +406,10 @@ def get_friend_list(request):
             'error': 'get friend list is error'
         }, status=400)
     user = request.my_user
-    friend_list = Friend.objects.filter(Q(user1=user, status=2) | Q(user2=user, status=2))
+    friend_list = cache.get(f'friend_list_{user.user_id}')
+    if not friend_list:
+        friend_list = Friend.objects.filter(Q(user1=user, status=2) | Q(user2=user, status=2))
+        cache.set(f'friend_list_{user.user_id}', friend_list, 60 * 60 * 24 * 7)
     serializer_data = FriendListSerializer(friend_list, many=True, context={'user': user}).data
 
     return JsonResponse({
@@ -413,6 +428,12 @@ def delete_friend(request):
     delete_friend_id = (json.loads(request.body)).get('f_id')
     try:
         friend = Friend.objects.get(friend_id=delete_friend_id)
+        cache.delete(f'friend_message_{friend.user1.user_id}')
+        cache.delete(f'friend_message_{friend.user2.user_id}')
+        cache.delete(f'friend_list_{friend.user1.user_id}')
+        cache.delete(f'friend_list_{friend.user2.user_id}')
+        cache.delete(f'is_friend_{friend.user1.user_id}_{friend.user2.user_id}')
+        cache.delete(f'is_friend_{friend.user2.user_id}_{friend.user1.user_id}')
     except Exception as e:
         print('get friend is error', e)
         return JsonResponse({

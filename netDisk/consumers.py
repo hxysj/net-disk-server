@@ -400,7 +400,10 @@ class ChatMessageConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def save_message(self, message):
         message_id = uuid.uuid4()
-        conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
+        conversation = cache.get(f'conversation_data_{self.conversation_id}')
+        if not conversation:
+            conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
+            cache.set(f'conversation_data_{self.conversation_id}', conversation, 60 * 60 * 24 * 7)
         newMessage = Message.objects.create(
             message_id=message_id,
             user_id=self.user,
@@ -408,17 +411,28 @@ class ChatMessageConsumer(AsyncWebsocketConsumer):
             content=message,
             status=0
         )
+        cache.delete(f'message_list_{self.user.user_id}_{self.conversation_id}')
         self.message_id = newMessage.message_id
 
     # 判断是否是好友关系，如果不是则不允许发送消息
     @database_sync_to_async
     def check_friend_status(self):
-        conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
+        conversation = cache.get(f'conversation_data_{self.conversation_id}')
+        if not conversation:
+            conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
+            cache.set(f'conversation_data_{self.conversation_id}', conversation, 60 * 60 * 24 * 7)
         try:
-            Friend.objects.get(
-                (Q(user1=conversation.user1, user2=conversation.user2) | Q(user1=conversation.user2,
-                                                                           user2=conversation.user1)) & Q(
-                    status=2))
+            if not cache.get(f'is_friend_{conversation.user1.user_id}_{conversation.user2.user_id}') and not cache.get(
+                    f'is_friend_{conversation.user2.user_id}_{conversation.user1.user_id}'):
+                Friend.objects.get(
+                    (Q(user1=conversation.user1, user2=conversation.user2) | Q(user1=conversation.user2,
+                                                                               user2=conversation.user1)) & Q(
+                        status=2))
+                cache.set(f'is_friend_{conversation.user1.user_id}_{conversation.user2.user_id}', True,
+                          60 * 60 * 24 * 7)
+                cache.set(f'is_friend_{conversation.user2.user_id}_{conversation.user1.user_id}', True,
+                          60 * 60 * 24 * 7)
+
         except Exception as e:
             print(e)
             return False
@@ -427,15 +441,25 @@ class ChatMessageConsumer(AsyncWebsocketConsumer):
     # 判断是否有对话，如果发送消息了没有对话就创建
     @database_sync_to_async
     def check_user_user_session(self):
-        conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
+        conversation = cache.get(f'conversation_data_{self.conversation_id}')
+        if not conversation:
+            conversation = ConverSations.objects.get(conversation_id=self.conversation_id)
+            cache.set(f'conversation_data_{self.conversation_id}', conversation, 60 * 60 * 24 * 7)
         try:
-            ConverSationsUser.objects.get(user_id=conversation.user1, conversation_id=conversation)
+            if not cache.get(f'conversations_user_{conversation.user1.user_id}_{conversation.conversation_id}'):
+                ConverSationsUser.objects.get(user_id=conversation.user1, conversation_id=conversation)
         except Exception as e:
-            ConverSationsUser.objects.create(conversation_id=conversation, user_id=conversation.user1)
+            conversation_user = ConverSationsUser.objects.create(conversation_id=conversation,
+                                                                 user_id=conversation.user1)
+            cache.set(f'conversations_user_{conversation.user1.user_id}_{conversation.conversation_id}',
+                      conversation_user, 60 * 60 * 24 * 7)
         try:
-            ConverSationsUser.objects.get(user_id=conversation.user2, conversation_id=conversation)
+            if not cache.get(f'conversations_user_{conversation.user2.user_id}_{conversation.conversation_id}'):
+                ConverSationsUser.objects.get(user_id=conversation.user2, conversation_id=conversation)
         except Exception as e:
-            ConverSationsUser.objects.create(conversation_id=conversation, user_id=conversation.user2)
+            conversation_user = ConverSationsUser.objects.create(conversation_id=conversation,
+                                                                 user_id=conversation.user2)
+            cache.set(f'conversations_user_{conversation.user2.user_id}', conversation_user, 60 * 60 * 24 * 7)
 
     @database_sync_to_async
     def get_message_user(self, message_id):
