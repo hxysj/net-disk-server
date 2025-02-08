@@ -15,6 +15,7 @@ import os
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
+
 # 检测请求的pid是否存在祖宗中  file_id 当前文件的id，pid被检测的id
 def check_file_id(file_id, pid, user):
     if file_id == pid:
@@ -26,7 +27,7 @@ def check_file_id(file_id, pid, user):
         file_list = cache.get(f'file_user_list_${user.user_id}_${file_id}')
     else:
         file_list = FileInfo.objects.filter(file_pid=file_id, user_id=user)
-        cache.set(f'file_user_list_${user.user_id}_${file_id}', file_list, 60*60*24)
+        cache.set(f'file_user_list_${user.user_id}_${file_id}', file_list, 60 * 60 * 24)
     if len(file_list) == 0:
         return False
     file_id_list = [file.file_id for file in file_list]
@@ -49,7 +50,7 @@ def search_file_children(file_id, user):
         file_list = cache.get(f'file_user_list_${user.user_id}_${file_id}')
     else:
         file_list = FileInfo.objects.filter(file_pid=file_id, user_id=user)
-        cache.set(f'file_user_list_${user.user_id}_${file_id}', file_list, 60*60*24)
+        cache.set(f'file_user_list_${user.user_id}_${file_id}', file_list, 60 * 60 * 24)
     if len(file_list) == 0:
         return result
     for file in file_list:
@@ -75,7 +76,7 @@ def sum_file_size(obj):
         file = cache.get(f'file_info_${obj["fileId"]}')
     else:
         file = FileInfo.objects.get(file_id=obj['fileId'])
-        cache.set(f'file_info_${file.file_id}', file, 60*60*24)
+        cache.set(f'file_info_${file.file_id}', file, 60 * 60 * 24)
     if file.folder_type != 1:
         size += file.file_size
     if len(obj['children']) != 0:
@@ -90,7 +91,7 @@ def copy_file(obj, user, pid):
         file = cache.get(f'file_info_${obj["fileId"]}')
     else:
         file = FileInfo.objects.get(file_id=obj['fileId'])
-        cache.set(f'file_info_${obj["fileId"]}', file, 60*60*24)
+        cache.set(f'file_info_${obj["fileId"]}', file, 60 * 60 * 24)
     new_file_id = uuid.uuid4()
     FileInfo.objects.create(file_id=new_file_id,
                             file_pid=pid,
@@ -193,14 +194,11 @@ def get_file_type(filename):
 
 
 # 解密文件块函数
-def decrypt_data(encrypted_data):
-    # 密钥和初始化向量（IV）
-    encryption_key = b'secret-key123456'  # 确保是16字节的密钥
-    iv = b'1234567890113456'  # 确保是16字节的IV
+def decrypt_data(encrypted_data, key, iv):
     # Base64 解码
     encrypted_data_bytes = base64.b64decode(encrypted_data)
     # 创建 AES 解密器
-    cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
+    cipher = AES.new(key, AES.MODE_CBC, iv)
     # 解密数据并去除填充
     decrypted_data = unpad(cipher.decrypt(encrypted_data_bytes), AES.block_size)
 
