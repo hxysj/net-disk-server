@@ -314,7 +314,7 @@ class FileTransferConsumer(AsyncWebsocketConsumer):
         # 获取文件的base64密文
         encrypted_data = chunk_file_base64
         try:
-            chunk_data = decrypt_data(encrypted_data)
+            chunk_data = decrypt_data(encrypted_data, settings.ENCRYPTION_KEY, settings.IV_KEY)
             with open(path, 'wb') as f:
                 f.write(chunk_data)
             if not cache.get(f'file_chunk_count_{file_id}'):

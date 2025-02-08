@@ -192,6 +192,10 @@ JWT_TOKEN_KEY = 'netdiskkey'
 
 CODE_TOKEN_KEY = 'sdaqwewqemsd'
 
+ENCRYPTION_KEY = b'secret-key123456'
+
+IV_KEY = b'1234567890123456'
+
 FERNET_KEY = b'tTko3Sv6chullC72OhOTY5_2UjZFFqG6f7KE8SHVSGk='
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760
@@ -202,9 +206,9 @@ CSRF_COOKIE_NAME = 'csrftoken'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.qq.com'
-MEAIL_PORT = 25
+EMAIL_PORT = 25
 EMAIL_HOST_USER = "***"
 EMAIL_HOST_PASSWORD = "***" # 授权码  # 授权码
 EMAIL_USE_TLS = True
 # 发送者
-EMAIL_FROM = "netDisk-<***>" - <2413867596@qq.com>'
+EMAIL_FROM = "netDisk-<***>"
