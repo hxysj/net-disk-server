@@ -18,6 +18,7 @@ jobs:
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           script: |
+            set -e
             cd /var/www/net-disk-server
             git pull origin master
             supervisorctl update
