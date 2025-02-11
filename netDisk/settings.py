@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-1z!gppre9ftbdf!g=#&4xkvaxxzfvqwme1@(u#+33pa&@&=7$9
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['121.43.41.254','127.0.0.1','localhost']
 
 # Application definition
 
@@ -96,7 +96,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'netDisk',
         'USER': 'root',
-        'PASSWORD': '2003010230',
+        'PASSWORD': '1qaz@WSX',
         'HOST': '127.0.0.1',
         'PORT': '3306',
         'OPTIONS': {
@@ -156,9 +156,9 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # 跨域请求
 CORS_ALLOW_CREDENTIALS = True  # 允许携带凭证
-CORS_ORIGIN_WHITELIST = ['http://localhost:1024', 'http://127.0.0.1:1024']
-CSRF_TRUSTED_ORIGINS = ['http://localhost:1024', 'http://127.0.0.1:1024']
-CORS_ALLOWED_ORIGINS = ['http://localhost:1024', 'http://127.0.0.1:1024']
+CORS_ORIGIN_WHITELIST = ['http://localhost:1024','http://121.43.41.254', 'http://127.0.0.1:1024']
+CSRF_TRUSTED_ORIGINS = ['http://localhost:1024','http://121.43.41.254', 'http://127.0.0.1:1024']
+CORS_ALLOWED_ORIGINS = ['http://localhost:1024','http://121.43.41.254', 'http://127.0.0.1:1024']
 
 CORS_ALLOW_METHODS = (
     'DELETE',

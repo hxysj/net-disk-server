@@ -28,3 +28,4 @@ chunks
 */migrations
 */__pycache__
 *.pyc
+*_initial.py
