@@ -159,7 +159,7 @@ def create_video_file(merged_file, file_name, file_id):
     cover_path = os.path.join(base_dir, 'chunks', file_id + '.jpg')
     # 对视频生成缩略图
     command = [
-        'ffmpeg', '-i',
+        '/usr/local/ffmpeg/bin/ffmpeg', '-i',
         video_path, '-ss',
         '00:00:01', '-vframes',
         '1', cover_path
@@ -178,7 +178,7 @@ def create_video_file(merged_file, file_name, file_id):
     m3u8_path = os.path.join(base_dir, 'media', 'file', file_id + '.m3u8')
     # 构建 FFmpeg 命令
     command = (
-        'ffmpeg -i {} -c:v libx264 -c:a aac -strict -2 '
+        '/usr/local/ffmpeg/bin/ffmpeg -i {} -c:v libx264 -c:a aac -strict -2 '
         '-f hls -hls_time 300 -hls_list_size 0 {}'
     ).format(video_path, m3u8_path)
     # 执行命令
