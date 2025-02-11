@@ -26,10 +26,11 @@ class WsTokenVerify:
             print(f'websocket jwt is error: {e}')
             return await self.app(scope, receive, send)
         user_id = jwt_dict['uid']
-        if not cache.get(f'user_${user_id}'):
+        user = cache.get(f'user_${user_id}')
+        if user:
             user = await self.get_user(user_id)
+            cache.set(f'user_${user_id}', user, 60 * 60 * 1)
         scope['user'] = user
-        cache.set(f'user_${user_id}', user, 60 * 60 * 1)
         cache.set(f'file_uploader_${file_id}', 1, 60 * 10)
         return await self.app(scope, receive, send)
 
