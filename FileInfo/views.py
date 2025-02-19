@@ -276,7 +276,7 @@ def change_file_folder(request):
             'data': 'move file or folder is error'
         })
     data = json.loads(request.body)
-    # print(data)
+
     old_pid = 0
     for file_id in data['idList']:
         if cache.get(f'file_info_${file_id}'):
@@ -290,6 +290,11 @@ def change_file_folder(request):
                     'code': 404,
                     'data': 'move file or folder is error'
                 })
+        if check_file_name(file.file_name, data['pid'], request.my_user, file.file_id):
+            return JsonResponse({
+                'code': 4000,
+                'error': '同级目录下名称已存在，请更改目录名称！'
+            })
         old_pid = file.file_pid
         file.file_pid = data['pid']
         file.save()
