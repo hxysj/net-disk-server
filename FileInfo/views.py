@@ -153,6 +153,7 @@ def newFoloder(request):
     # 新目录创建，删除之前的缓存
     if cache.get(f'file_user_list_${user.user_id}_${data.get("pid")}'):
         cache.delete(f'file_user_list_${user.user_id}_${data.get("pid")}')
+        cache.delete(f'file_user_list_${user.user_id}')
     if cache.get(f'admin_file_list_${data.get("pid")}'):
         cache.delete(f'admin_file_list_${data.get("pid")}')
     result = {
@@ -196,6 +197,7 @@ def rename(request):
     if cache.get(f'file_user_list_${request.my_user.user_id}_${file.file_pid}'):
         # print('删除之前缓存')
         cache.delete(f'file_user_list_${request.my_user.user_id}_${file.file_pid}')
+        cache.delete(f'file_user_list_${request.my_user.user_id}')
     cache.set(f'file_info_${file.file_id}', file, 60 * 60)
     if cache.get(f'admin_file_list_${file.file_pid}'):
         cache.delete(f'admin_file_list_${file.file_pid}')
@@ -306,6 +308,7 @@ def change_file_folder(request):
     cache.delete(f'user_share_${request.my_user.user_id}')
     cache.delete(f'admin_file_list_${old_pid}')
     cache.delete(f'admin_file_list_${data["pid"]}')
+    cache.delete(f'file_user_list_${request.my_user.user_id}')
     return JsonResponse({
         'code': 200,
         'data': 'move file is success'
@@ -353,6 +356,7 @@ def del_file(request):
         file.save()
         cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
         cache.delete(f'file_user_list_${request.my_user.user_id}_${file.file_pid}')
+        cache.delete(f'file_user_list_${request.my_user.user_id}')
         cache.delete(f'admin_file_list_${file.file_pid}')
         # 进入回收站的同时，需要将相关联的分享删除
         file_share_list = FileShare.objects.filter(file_id=file)
@@ -463,6 +467,7 @@ def upload_file(request):
             status=2
         )
         cache.delete(f'file_user_list_${user.user_id}_${file_Pid}')
+        cache.delete(f'file_user_list_${user.user_id}')
         cache.delete(f'admin_file_list_${file_Pid}')
         return JsonResponse({
             'code': 200,
@@ -516,6 +521,7 @@ def upload_file(request):
             status=0
         )
         cache.delete(f'file_user_list_${user.user_id}_${file_Pid}')
+        cache.delete(f'file_user_list_${user.user_id}')
         cache.delete(f'admin_file_list_${file_Pid}')
         user.use_space = user.use_space + int(file_size)
         user.save()
@@ -710,6 +716,7 @@ def composite_file(total_chunks, fileId, file_type, content_type, file_name, fil
     file.save()
     cache.set(f'file_info_${fileId}', file, 60 * 60 * 24)
     cache.delete(f'file_user_list_${file.user_id.user_id}_${file.file_pid}')
+    cache.delete(f'file_user_list_${file.user_id.user_id}')
 
 
 # 对不是视频文件进行操作
