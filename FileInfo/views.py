@@ -75,6 +75,20 @@ def loadDataList(request):
     # print(datalist)
     # 获得没有删除的文件
     datalist = [file for file in datalist if file.del_flag == 2]
+    # 搜索和分类需要从所有文件中找
+    if fuzzy or category != 'all':
+        if cache.get(f'file_user_list_${user.user_id}'):
+            datalist = cache.get(f'file_user_list_${user.user_id}')
+        else:
+            try:
+                datalist = FileInfo.objects.filter(user_id=user.user_id).order_by('-last_update_time')
+                cache.set(f'file_user_list_${user.user_id}', datalist, 60 * 60)
+            except Exception as e:
+                print('filter data list is error : %s' % e)
+                return JsonResponse({
+                    'code': 404,
+                    'error': 'get dataList is wrong!'
+                })
     # 如果有搜索
     if fuzzy:
         datalist = [file for file in datalist if fuzzy in file.file_name]

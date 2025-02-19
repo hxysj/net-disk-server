@@ -20,6 +20,8 @@ jobs:
           script: |
             set -e
             cd /var/www/net-disk-server
+            git stash
             git pull origin master
+            git stash pop
             supervisorctl update
             supervisorctl restart all
