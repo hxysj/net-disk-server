@@ -3,42 +3,36 @@ import os.path
 from FileInfo.models import FileInfo
 from tools.logging_dec import logging_check
 from django.http import JsonResponse
-from django.core.paginator import Paginator
 from .serializers import recycleSerializer
 from utils.utils import search_file_children, sum_file_size, get_search_file_list
 from django.conf import settings
 from django.core.cache import cache
+import math
 
 
 @logging_check
 def load_recycle_list(request):
     user = request.my_user
-    if cache.get(f'recycle_file_list${user.user_id}'):
-        files = cache.get(f'recycle_file_list_${user.user_id}')
-    else:
-        try:
-            files = FileInfo.objects.filter(user_id=user, del_flag=1).order_by('-recovery_time')
-            cache.set(f'recycle_file_list_${user.user_id}', files, 60*60*24)
-        except Exception as e:
-            print('get recycle is error: %s' % e)
-            return JsonResponse({
-                'error': 'get recycle is error!'
-            }, status=404)
     # 获取页码数
-    pageNow = int(request.GET.get('pageNo'))
+    page_now = int(request.GET.get('pageNo'))
     # 获得页数
-    pageSize = int(request.GET.get('pageSize'))
-    # print(files)
-    # 对数据进行分类
-    paginator = Paginator(files, pageSize)
-    data = paginator.page(pageNow)
+    page_size = int(request.GET.get('pageSize'))
+    try:
+        files = FileInfo.objects.filter(user_id=user, del_flag=1).order_by('-recovery_time')[
+                (page_now - 1) * page_size:page_now * page_size]
+        total_num = FileInfo.objects.filter(user_id=user, del_flag=1).count()
+    except Exception as e:
+        print('get recycle is error: %s' % e)
+        return JsonResponse({
+            'error': 'get recycle is error!'
+        }, status=404)
     # 将QuerySet数据转换成json数据
-    datalist = recycleSerializer(data, many=True).data
+    data_list = recycleSerializer(files, many=True).data
     return JsonResponse({
-        'pageSize': pageSize,
-        'pageTotal': paginator.num_pages,
-        'pageNo': pageNow,
-        'list': datalist
+        'pageSize': page_size,
+        'pageTotal': math.ceil(total_num / page_size),
+        'pageNo': page_now,
+        'list': data_list
     })
 
 
@@ -87,13 +81,10 @@ def recover_file(request):
         file.del_flag = 2
         file.file_pid = 0
         file.save()
-        cache.set(f'file_info_${file_id}', file, 60*60*24)
-        if cache.get(f'file_user_list_${user.user_id}_${file.file_pid}'):
-            cache.delete(f'file_user_list_${user.user_id}_${file.file_pid}')
-        cache.delete(f'admin_file_list_${file.file_pid}')
+        cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
     user.use_space = user.use_space + total_size
     user.save()
-    cache.set(f'user_${user.user_id}', user, 60*60*24)
+    cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
     return JsonResponse({
         'status': 'success',
         'msg': '还原成功！'
@@ -155,7 +146,6 @@ def delete_file(request):
         file.delete()
         if cache.get(f'file_info_${file_id}'):
             cache.delete(f'file_info_${file_id}')
-        cache.delete(f'recycle_file_list_${request.my_user.user_id}')
     return JsonResponse({
         'status': 'success',
         'msg': '删除成功！'

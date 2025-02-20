@@ -68,6 +68,10 @@ def get_message(request):
         }, status=400)
     session_id = request.GET.get('session_id')
     user = request.my_user
+
+    num = int(request.GET.get('num', 0))  # 默认读取尾部
+    limit = 20  # 每次读取数据的条数
+
     try:
         # 获取会话对象
         conversation = cache.get(f'conversation_data_{session_id}')
@@ -85,30 +89,19 @@ def get_message(request):
         filters = Q(conversation_id=conversation)
         if delete_at:
             filters &= Q(create_time__gt=delete_at)
-        message_list = cache.get(f'message_list_{user.user_id}_{session_id}')
-        if not message_list:
-            # 获取消息列表
-            message_list = Message.objects.filter(filters).order_by('create_time')
-            cache.set(f'message_list_{user.user_id}_{session_id}', message_list, 60 * 60 * 24 * 7)
+
+        # 获取消息列表
+        message_list = Message.objects.filter(filters).order_by('-create_time')[num:num + limit]
     except Exception as e:
         print(f'get message is error: {e}')
         return JsonResponse({
             'error': 'get message for session id is error'
         }, status=400)
     message_list = MessageSerializers(message_list, many=True).data
-    # print(66, message_list)
-    num = int(request.GET.get('num', 0))  # 默认读取尾部
-    limit = 20  # 每次读取数据的条数
-    # 计算起始和结束位置
-    start = -num  # 计算查询的起始位置
-    end = -(limit + num)  # 计算查询的结束位置
-    if start == 0:
-        show_list = message_list[-limit:]
-    else:
-        show_list = message_list[end:start]
+
     return JsonResponse({
         'code': 200,
-        'list': show_list
+        'list': message_list[::-1]
     })
 
 
@@ -131,7 +124,6 @@ def set_read_message(request):
             'error': 'set message is read is error'
         }, status=400)
     Message.objects.filter(conversation_id=conversation, status=0).exclude(user_id=request.my_user).update(status=1)
-    cache.delete(f'message_list_{request.my_user.user_id}_{conversation_id}')
     return JsonResponse({
         'code': 1000,
         'status': 'success'
@@ -220,7 +212,6 @@ def clear_chat_record(request):
     cache.delete(f'conversation_data_{conversation.conversation_id}')
     cache.delete(f'conversations_user_{user.user_id}_{conversation.conversation_id}')
     Message.objects.filter(conversation_id=conversation, status=0).exclude(user_id=request.my_user).update(status=1)
-    cache.delete(f'message_list_{user.user_id}_{conversation.conversation_id}')
     return JsonResponse({
         'code': 10000,
         'status': 'success'

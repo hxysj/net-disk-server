@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import threading
@@ -292,7 +291,6 @@ class FileTransferConsumer(AsyncWebsocketConsumer):
             cache.set(f'file_uploader_${file_id}', 3, 60 * 10)
             await change_user_size(user, file_size)
             cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
-            cache.delete(f'user_list')
             await create_file_info(file_id, file_md5, user, file_pid, file_size, file_name, file_category, file_type,
                                    file.get('file_cover', ''), file.get('file_path', ''), 2)
 
@@ -337,7 +335,6 @@ class FileTransferConsumer(AsyncWebsocketConsumer):
             cache.delete(f'admin_file_list_${file_pid}')
             await change_user_size(user, file_size)
             cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
-            cache.delete(f'user_list')
             concat_file.start()
             status = 'upload_finish'
         await self.send(json.dumps(
@@ -411,7 +408,6 @@ class ChatMessageConsumer(AsyncWebsocketConsumer):
             content=message,
             status=0
         )
-        cache.delete(f'message_list_{self.user.user_id}_{self.conversation_id}')
         self.message_id = newMessage.message_id
 
     # 判断是否是好友关系，如果不是则不允许发送消息

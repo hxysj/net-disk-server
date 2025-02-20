@@ -2,12 +2,10 @@ import io
 import json
 import os
 import uuid
-import hashlib
 import shutil
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from tools.logging_dec import logging_check
 from .models import FileInfo
-from django.core.paginator import Paginator
 from .serializers import FileInfoSerializer
 from django.utils import timezone
 from django.conf import settings
@@ -26,6 +24,8 @@ from django.core.cache import cache
 import aspose.words as aw
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
+from django.db.models import Q
+import math
 
 
 # 获取主页显示的数据，分页显示
@@ -38,9 +38,9 @@ def loadDataList(request):
             'error': 'get dataList is wrong!'
         })
     # 当前页数
-    pageNow = request.GET.get('pageNo')
+    page_now = int(request.GET.get('pageNo'))
     # 一页显示的数量
-    pageSize = request.GET.get('pageSize')
+    page_size = int(request.GET.get('pageSize'))
     # 当前的分类
     category = request.GET.get('category')
     # 当前的父类id
@@ -55,60 +55,46 @@ def loadDataList(request):
         cate_id = 4
     elif category == 'others':
         cate_id = 5
+    else:
+        cate_id = -1
     # 获取当前发出请求的用户
     user = request.my_user
     fuzzy = request.GET.get('fileNameFuzzy', False)
-    if cache.get(f'file_user_list_${user.user_id}_${pid}'):
-        # print('读取缓存')
-        datalist = cache.get(f'file_user_list_${user.user_id}_${pid}')
-    else:
-        # print('无缓存')
-        try:
-            datalist = FileInfo.objects.filter(user_id=user.user_id, file_pid=pid).order_by('-last_update_time')
-            cache.set(f'file_user_list_${user.user_id}_${pid}', datalist, 60 * 60)
-        except Exception as e:
-            print('filter data list is error : %s' % e)
-            return JsonResponse({
-                'code': 404,
-                'error': 'get dataList is wrong!'
-            })
-    # print(datalist)
-    # 获得没有删除的文件
-    datalist = [file for file in datalist if file.del_flag == 2]
-    # 搜索和分类需要从所有文件中找
-    if fuzzy or category != 'all':
-        if cache.get(f'file_user_list_${user.user_id}'):
-            datalist = cache.get(f'file_user_list_${user.user_id}')
-        else:
-            try:
-                datalist = FileInfo.objects.filter(user_id=user.user_id).order_by('-last_update_time')
-                cache.set(f'file_user_list_${user.user_id}', datalist, 60 * 60)
-            except Exception as e:
-                print('filter data list is error : %s' % e)
-                return JsonResponse({
-                    'code': 404,
-                    'error': 'get dataList is wrong!'
-                })
-    # 如果有搜索
+
+    # 构造过滤条件
+    filters = Q(user_id=user.user_id, del_flag=2)
+
+    # 如果 fuzzy 存在，添加模糊查询条件
     if fuzzy:
-        datalist = [file for file in datalist if fuzzy in file.file_name]
-    # 如果是分类
+        filters &= Q(file_name__icontains=fuzzy)
+
+    # 如果 category != 'all'，添加分类过滤条件
     if category != 'all':
-        datalist = [file for file in datalist if file.file_category == cate_id]
-    # 对数据进行分类
-    paginator = Paginator(datalist, pageSize)
-    data = paginator.page(pageNow)
-    # 将QuerySet数据转换成json数据
-    datalist = FileInfoSerializer(data, many=True).data
-    # datalist = [ob['fields'] for ob in json.loads(serializers.serialize('json', data))]
-    # print(datalist)
+        filters &= Q(file_category=cate_id)
+
+    if not fuzzy and category == 'all':
+        filters &= Q(file_pid=pid)
+
+    try:
+        data_list = FileInfo.objects.filter(filters).order_by('-last_update_time')[
+                    (page_now - 1) * page_size:page_now * page_size]
+        total_num = FileInfo.objects.filter(filters).count()
+    except Exception as e:
+        print('filter data list is error :%s' % e)
+        return JsonResponse({
+            'code': 4000,
+            'error': 'get datalist is wrong!'
+        })
+    # # 将QuerySet数据转换成json数据
+    data_list = FileInfoSerializer(data_list, many=True).data
+
     result = {
         'code': 200,
         'data': {
-            'pageTotal': paginator.num_pages,
-            'pageSize': pageSize,
-            'pageNo': pageNow,
-            'list': datalist
+            'pageTotal': math.ceil(total_num / page_size),
+            'pageSize': page_size,
+            'pageNo': page_now,
+            'list': data_list
         }
     }
     return JsonResponse(result)
@@ -150,10 +136,6 @@ def newFoloder(request):
         user_id=user,
         folder_type=1
     )
-    # 新目录创建，删除之前的缓存
-    if cache.get(f'file_user_list_${user.user_id}_${data.get("pid")}'):
-        cache.delete(f'file_user_list_${user.user_id}_${data.get("pid")}')
-        cache.delete(f'file_user_list_${user.user_id}')
     if cache.get(f'admin_file_list_${data.get("pid")}'):
         cache.delete(f'admin_file_list_${data.get("pid")}')
     result = {
@@ -194,10 +176,6 @@ def rename(request):
     file.file_name = body['name']
     file.save()
     # 重命名，删除之前的缓存
-    if cache.get(f'file_user_list_${request.my_user.user_id}_${file.file_pid}'):
-        # print('删除之前缓存')
-        cache.delete(f'file_user_list_${request.my_user.user_id}_${file.file_pid}')
-        cache.delete(f'file_user_list_${request.my_user.user_id}')
     cache.set(f'file_info_${file.file_id}', file, 60 * 60)
     if cache.get(f'admin_file_list_${file.file_pid}'):
         cache.delete(f'admin_file_list_${file.file_pid}')
@@ -246,22 +224,18 @@ def get_current_list(request):
         })
     data = json.loads(request.body)
     user = request.my_user
-    if cache.get(f'file_user_list_${user.user_id}_${data["filePid"]}'):
-        file_list = cache.get(f'file_user_list_${user.user_id}_${data["filePid"]}')
-        folders = [file for file in file_list if file.folder_type == 1 and file.file_id not in data['currentFileIds']]
-    else:
-        try:
-            folders = FileInfo.objects.filter(
-                user_id=user.user_id, file_pid=data['filePid'], del_flag=2, folder_type=1
-            ).exclude(
-                file_id__in=data['currentFileIds']
-            )
-        except Exception as e:
-            print('ranme error is %s' % e)
-            return JsonResponse({
-                'code': 404,
-                'error': 'get current data list is wrong'
-            })
+    try:
+        folders = FileInfo.objects.filter(
+            user_id=user.user_id, file_pid=data['filePid'], del_flag=2, folder_type=1
+        ).exclude(
+            file_id__in=data['currentFileIds']
+        )
+    except Exception as e:
+        print('ranme error is %s' % e)
+        return JsonResponse({
+            'code': 404,
+            'error': 'get current data list is wrong'
+        })
     data_list = FileInfoSerializer(folders, many=True).data
     return JsonResponse({
         'code': 200,
@@ -301,14 +275,8 @@ def change_file_folder(request):
         file.file_pid = data['pid']
         file.save()
         cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
-    if cache.get(f'file_user_list_${request.my_user.user_id}_${data["pid"]}'):
-        cache.delete(f'file_user_list_${request.my_user.user_id}_${data["pid"]}')
-    if cache.get(f'file_user_list_${request.my_user.user_id}_${old_pid}'):
-        cache.delete(f'file_user_list_${request.my_user.user_id}_${old_pid}')
-    cache.delete(f'user_share_${request.my_user.user_id}')
     cache.delete(f'admin_file_list_${old_pid}')
     cache.delete(f'admin_file_list_${data["pid"]}')
-    cache.delete(f'file_user_list_${request.my_user.user_id}')
     return JsonResponse({
         'code': 200,
         'data': 'move file is success'
@@ -355,8 +323,6 @@ def del_file(request):
         file.recovery_time = now
         file.save()
         cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
-        cache.delete(f'file_user_list_${request.my_user.user_id}_${file.file_pid}')
-        cache.delete(f'file_user_list_${request.my_user.user_id}')
         cache.delete(f'admin_file_list_${file.file_pid}')
         # 进入回收站的同时，需要将相关联的分享删除
         file_share_list = FileShare.objects.filter(file_id=file)
@@ -366,8 +332,6 @@ def del_file(request):
     user.use_space = user.use_space - total_size
     user.save()
     cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
-    cache.delete(f'user_share_${user.user_id}')
-    cache.delete(f'user_list')
     return JsonResponse({
         'code': 200,
         'error': 'del file is success'
@@ -466,8 +430,6 @@ def upload_file(request):
             file_type=file_type,
             status=2
         )
-        cache.delete(f'file_user_list_${user.user_id}_${file_Pid}')
-        cache.delete(f'file_user_list_${user.user_id}')
         cache.delete(f'admin_file_list_${file_Pid}')
         return JsonResponse({
             'code': 200,
@@ -520,13 +482,10 @@ def upload_file(request):
             file_type=file_type,
             status=0
         )
-        cache.delete(f'file_user_list_${user.user_id}_${file_Pid}')
-        cache.delete(f'file_user_list_${user.user_id}')
         cache.delete(f'admin_file_list_${file_Pid}')
         user.use_space = user.use_space + int(file_size)
         user.save()
         cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
-        cache.delete(f'user_list')
         change_file.start()
         status = 'upload_finish'
     return JsonResponse({
@@ -715,8 +674,6 @@ def composite_file(total_chunks, fileId, file_type, content_type, file_name, fil
     file.status = 2
     file.save()
     cache.set(f'file_info_${fileId}', file, 60 * 60 * 24)
-    cache.delete(f'file_user_list_${file.user_id.user_id}_${file.file_pid}')
-    cache.delete(f'file_user_list_${file.user_id.user_id}')
 
 
 # 对不是视频文件进行操作

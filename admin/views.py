@@ -1,9 +1,9 @@
+import math
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from tools.logging_dec import check_admin, logging_check
 from FileInfo.models import FileInfo
 import json
 from .serializers import AdminFileInfoSerializer, AdminUserSerializer
-from django.core.paginator import Paginator
 from User.models import User, Config
 import os
 from django.conf import settings
@@ -12,7 +12,8 @@ from cryptography.fernet import Fernet
 from django.core.files.storage import default_storage
 import subprocess
 from django.core.cache import cache
-# Create your views here.
+from django.db.models import Q
+
 
 # 获得文件信息
 @logging_check
@@ -25,39 +26,25 @@ def load_file_list(request):
     request_data = json.loads(request.body)
     pid = request_data.get('pid')
     fuzzy = request_data.get('fileNameFuzzy', False)
-    if cache.get(f'admin_file_list_${pid}'):
-        file_list = cache.get(f'admin_file_list_${pid}')
-    else:
-        try:
-            file_list = FileInfo.objects.filter(file_pid=pid).order_by('-last_update_time')
-            cache.set(f'admin_file_list_${pid}', file_list, 60*60*24)
-        except Exception as e:
-            print(e)
-            return JsonResponse({
-                'message': 'get file is error'
-            }, status=404)
-    file_list = [file for file in file_list if file.del_flag == 2]
-    if fuzzy:
-        file_list = [file for file in file_list if fuzzy in file.file_name]
-    # try:
-    #     if fuzzy:
-    #         file_list = FileInfo.objects.filter(del_flag=2, file_name__icontains=fuzzy, file_pid=pid).order_by('-last_update_time')
-    #     else:
-    #         file_list = FileInfo.objects.filter(del_flag=2, file_pid=pid).order_by('-last_update_time')
-    # except Exception as e:
-    #     print(e)
-    #     return JsonResponse({
-    #         'message': 'get file is error'
-    #     }, status=404)
     page_now = int(request_data.get('pageNo'))
     page_size = int(request_data.get('pageSize'))
-    data_paginator = Paginator(file_list, page_size)
-    now_data = data_paginator.page(page_now)
-    data = AdminFileInfoSerializer(now_data, many=True).data
+    filters = Q(file_pid=pid, del_flag=2)
+    if fuzzy:
+        filters &= Q(file_name__icontains=fuzzy)
+    try:
+        file_list = FileInfo.objects.filter(filters).order_by('-last_update_time')[
+                    (page_now - 1) * page_size:page_now * page_size]
+        total_num = FileInfo.objects.filter(filters).count()
+    except Exception as e:
+        print('get file is error: %s' % e)
+        return JsonResponse({
+            'message': 'get file is error',
+        }, status=4000)
+    data = AdminFileInfoSerializer(file_list, many=True).data
     return JsonResponse({
         'pageNo': page_now,
         'pageSize': page_size,
-        'pageTotal': data_paginator.num_pages,
+        'pageTotal': math.ceil(total_num / page_size),
         'list': data
     })
 
@@ -97,12 +84,9 @@ def del_file(request):
         if file.file_size:
             user.use_space = user.use_space - file.file_size
             user.save()
-            cache.set(f'user_${ls["user_id"]}', user, 60*60*24)
+            cache.set(f'user_${ls["user_id"]}', user, 60 * 60 * 24)
         file.delete()
         cache.delete(f'file_info_${ls["file_id"]}')
-        cache.delete(f'admin_file_list_${file.file_pid}')
-        cache.delete(f'file_user_list_${user.user_id}_${file.file_pid}')
-        cache.delete(f'user_share_${user.user_id}')
     return JsonResponse({
         'code': 200,
         'status': 'success'
@@ -130,7 +114,7 @@ def get_video_info(request, file_user):
             else:
                 user = User.objects.get(user_id=user_id)
             video = FileInfo.objects.get(file_id=file_id, user_id=user)
-            cache.set(f'file_info_${file_id}', video, 60*60*24)
+            cache.set(f'file_info_${file_id}', video, 60 * 60 * 24)
         except Exception as e:
             print('get video is error: %s' % e)
             return JsonResponse({
@@ -156,7 +140,7 @@ def get_file(request, file_user):
             else:
                 user = User.objects.get(user_id=user_id)
             file = FileInfo.objects.get(file_id=file_id, user_id=user)
-            cache.set(f'file_info_${file_id}', file, 60*60*24)
+            cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
         except Exception as e:
             print('get file is error: %s' % e)
             return JsonResponse({
@@ -177,49 +161,32 @@ def get_user_list(request):
     request_data = json.loads(request.body)
     userNameFuzzy = request_data.get('userNameFuzzy', 'not_search')
     status = request_data.get('status', 'not_search')
-    if cache.get('user_list'):
-        user_list = cache.get('user_list')
-    else:
-        try:
-            user_list = User.objects.filter(identity=False)
-        except Exception as e:
-            print(e)
-            return JsonResponse({
-                'error': 'get user list is error'
-            }, status=404)
-
-    if userNameFuzzy == 'not_search' and status == 'not_search':
-        user_list = user_list
-    elif userNameFuzzy != 'not_search' and status != 'not_search':
-        user_list = [user for user in user_list if (userNameFuzzy in user.nick_name) and (user.status == status)]
-    elif userNameFuzzy == 'not_search' and status != 'not_search':
-        user_list = [user for user in user_list if user.status == status]
-
-    # try:
-    #     if userNameFuzzy == 'not_search' and status == 'not_search':
-    #         user_list = User.objects.filter(identity=False)
-    #     elif userNameFuzzy != 'not_search' and status != 'not_search':
-    #         user_list = User.objects.filter(nick_name__icontains=userNameFuzzy, status=status, identity=False)
-    #     elif userNameFuzzy == 'not_search' and status != 'not_search':
-    #         user_list = User.objects.filter(status=status, identity=False)
-    # except Exception as e:
-    #     print(e)
-    #     return JsonResponse({
-    #         'error': 'get user list is error'
-    #     }, status=404)
 
     page_now = int(request_data.get('pageNo'))
     page_size = int(request_data.get('pageSize'))
 
-    user_list = Paginator(user_list,page_size)
-    # print(page_now)
-    user_data = user_list.page(page_now)
-    data = AdminUserSerializer(user_data,many=True).data
+    filters = Q(identity=False)
+    if userNameFuzzy != 'not_search':
+        filters &= Q(nick_name__icontains=userNameFuzzy)
+
+    if status != 'not_search':
+        filters &= Q(status=status)
+
+    try:
+        user_list = User.objects.filter(filters)[(page_now - 1) * page_size:page_now * page_size]
+        total_num = User.objects.filter(filters).count()
+    except Exception as e:
+        print('get user list is error: %s' % e)
+        return JsonResponse({
+            'error': 'get user list is error'
+        }, status=404)
+
+    data = AdminUserSerializer(user_list, many=True).data
 
     return JsonResponse({
         'pageNo': page_now,
         'pageSize': page_size,
-        'pageTotal': user_list.num_pages,
+        'pageTotal': math.ceil(total_num / page_size),
         'list': data
     })
 
@@ -230,7 +197,7 @@ def get_user_list(request):
 def update_user_status(request):
     if request.method != 'POST':
         return JsonResponse({
-            'error':'update user status is error'
+            'error': 'update user status is error'
         }, status=404)
     request_data = json.loads(request.body)
     # 更改后的状态
@@ -245,12 +212,11 @@ def update_user_status(request):
         except Exception as e:
             print(e)
             return JsonResponse({
-                'error':'update user status is error'
+                'error': 'update user status is error'
             }, status=404)
     user.status = status
     user.save()
-    cache.set(f'user_${user_id}', user, 60*60*24)
-    cache.delete(f'user_list')
+    cache.set(f'user_${user_id}', user, 60 * 60 * 24)
     return JsonResponse({
         'status': 'success',
         'code': 200
@@ -280,7 +246,7 @@ def update_user_space(request):
             }, status=404)
     user.total_space = space
     user.save()
-    cache.set(f'user_${user_id}', user ,60*60*24)
+    cache.set(f'user_${user_id}', user, 60 * 60 * 24)
     return JsonResponse({
         'code': 200,
         'status': 'success'
@@ -300,7 +266,7 @@ def get_sys_settings(request):
     else:
         try:
             config = Config.objects.get(config_id='netdiskconfig')
-            cache.set('system_setting', config, 60*60*24)
+            cache.set('system_setting', config, 60 * 60 * 24)
         except Exception as e:
             print(e)
             return JsonResponse({
@@ -336,7 +302,7 @@ def update_settings(request):
             }, status=500)
     config.user_space = user_space
     config.save()
-    cache.set('system_setting', config, 60*60*24)
+    cache.set('system_setting', config, 60 * 60 * 24)
     return JsonResponse({
         'code': 200,
         'status': 'success'
@@ -359,12 +325,12 @@ def create_download_url(request, file_id, user_id):
             user = cache.get(f'user_${user_id}')
         else:
             user = User.objects.get(user_id=user_id)
-            cache.set(f'user_${user_id}', user, 60*60*24)
+            cache.set(f'user_${user_id}', user, 60 * 60 * 24)
         if cache.get(f'file_info_${file_id}'):
             file = cache.get(f'file_info_${file_id}')
         else:
             file = FileInfo.objects.get(file_id=file_id, user_id=user)
-            cache.set(f'file_info_${file_id}', file, 60*60*24)
+            cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
     except Exception as e:
         print(e)
         return JsonResponse({
@@ -438,16 +404,17 @@ def merge_m3u8(m3u8_file_path):
     try:
         process = subprocess.Popen(
             ['ffmpeg', '-f', 'concat', '-safe', '0', '-i',
-             os.path.join(settings.BASE_DIR, 'chunks', file_name_header + '_ts_list.txt'), '-c', 'copy', os.path.join(settings.BASE_DIR,'chunks',file_name_header+'.mp4')],
+             os.path.join(settings.BASE_DIR, 'chunks', file_name_header + '_ts_list.txt'), '-c', 'copy',
+             os.path.join(settings.BASE_DIR, 'chunks', file_name_header + '.mp4')],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         # 获取合并后的 video 数据
         video_data, error = process.communicate()
-        os.remove(os.path.join(settings.BASE_DIR,'chunks',file_name_header+'_ts_list.txt'))
+        os.remove(os.path.join(settings.BASE_DIR, 'chunks', file_name_header + '_ts_list.txt'))
         # print(process.returncode)
         if process.returncode != 0:
             return False
     except Exception as e:
         print('concat video is error :%s' % e)
         return False
-    return os.path.join(settings.BASE_DIR,'chunks',file_name_header+'.mp4')
+    return os.path.join(settings.BASE_DIR, 'chunks', file_name_header + '.mp4')

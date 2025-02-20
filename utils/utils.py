@@ -16,18 +16,11 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
 
-# 检测请求的pid是否存在祖宗中  file_id 当前文件的id，pid被检测的id
+# file_id 当前文件的id，pid被检测的id，检测pid是否存在于file_id的后代中
 def check_file_id(file_id, pid, user):
     if file_id == pid:
         return True
-    # print('share-file:', file_id)
-    # print('pid:', pid)
-
-    if cache.get(f'file_user_list_${user.user_id}_${file_id}'):
-        file_list = cache.get(f'file_user_list_${user.user_id}_${file_id}')
-    else:
-        file_list = FileInfo.objects.filter(file_pid=file_id, user_id=user)
-        cache.set(f'file_user_list_${user.user_id}_${file_id}', file_list, 60 * 60 * 24)
+    file_list = FileInfo.objects.filter(file_pid=file_id, user_id=user)
     if len(file_list) == 0:
         return False
     file_id_list = [file.file_id for file in file_list]
@@ -46,11 +39,8 @@ def search_file_children(file_id, user):
         'fileId': file_id,
         'children': []
     }
-    if cache.get(f'file_user_list_${user.user_id}_${file_id}'):
-        file_list = cache.get(f'file_user_list_${user.user_id}_${file_id}')
-    else:
-        file_list = FileInfo.objects.filter(file_pid=file_id, user_id=user)
-        cache.set(f'file_user_list_${user.user_id}_${file_id}', file_list, 60 * 60 * 24)
+    file_list = FileInfo.objects.filter(file_pid=file_id, user_id=user)
+
     if len(file_list) == 0:
         return result
     for file in file_list:
@@ -106,8 +96,6 @@ def copy_file(obj, user, pid):
                             file_type=file.file_type,
                             status=file.status
                             )
-    if cache.get(f'file_user_list_${user.user_id}_${pid}'):
-        cache.delete(f'file_user_list_${user.user_id}_${pid}')
     for file_child in obj['children']:
         copy_file(file_child, user, new_file_id)
 

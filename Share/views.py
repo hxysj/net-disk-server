@@ -7,7 +7,6 @@ from django.conf import settings
 import jwt
 import time
 import json
-from django.core.paginator import Paginator
 from FileInfo.serializers import FileInfoSerializer
 from utils.utils import copy_file, check_file_id, sum_file_size, search_file_children
 import os
@@ -17,6 +16,7 @@ from django.core.files.storage import default_storage
 import subprocess
 from django.utils import timezone
 from django.core.cache import cache
+import math
 
 
 # 获得分享信息
@@ -81,7 +81,7 @@ def check_code(request):
             }, status=403)
     code_token = make_token(code, share_id)
     # print('--->make-token-code is : %s' % code_token)
-    response = JsonResponse({'code': 200,'code_check':code_token})
+    response = JsonResponse({'code': 200, 'code_check': code_token})
     response.set_cookie('check_token', code_token, expires=time.time() + (60 * 10))
     return response
 
@@ -113,6 +113,9 @@ def load_file_list(request):
     file = share_file.file_id
     share_user = share_file.user_id
     pid = request.GET.get('pid')
+    page_now = int(request.GET.get('pageNo'))
+    page_size = int(request.GET.get('pageSize'))
+    total_count = 0
     try:
         # 如果pid等于文件的父级id，证明链接要访问的正是读取文件，返回文件信息
         if pid == file.file_pid:
@@ -120,26 +123,24 @@ def load_file_list(request):
         else:
             if check_file_id(file.file_id, pid, share_user):
                 file_list = FileInfo.objects.filter(file_pid=pid, del_flag=2, user_id=share_user).order_by(
-                    '-create_time')
+                    '-create_time')[(page_now - 1) * page_size:page_now * page_size]
+                # 获取总的记录数（用于计算页数）
+                total_count = FileInfo.objects.filter(file_pid=pid, del_flag=2, user_id=share_user).count()
             else:
                 return JsonResponse({
                     'error': 'get share file list is error'
-                }, status=404)
+                }, status=4000)
     except Exception as e:
         print(e)
         return JsonResponse({
             'error': 'get share file list is error'
-        }, status=404)
-    pageNow = int(request.GET.get('pageNo'))
-    pageSize = int(request.GET.get('pageSize'))
-    file_list = Paginator(file_list, pageSize)
-    data_list = file_list.page(pageNow)
-    data = FileInfoSerializer(data_list, many=True).data
+        }, status=4000)
+    data = FileInfoSerializer(file_list, many=True).data
     return JsonResponse({
-        'pageNo': pageNow,
-        'pageSize': pageSize,
+        'pageNo': page_now,
+        'pageSize': page_size,
         'list': data,
-        'pageTotal': file_list.num_pages
+        'pageTotal': math.ceil(total_count / page_size)
     })
 
 
@@ -153,7 +154,7 @@ def get_file(request, file_id):
         # 没有缓存则从数据库中获得
         try:
             file = FileInfo.objects.get(file_id=file_id)
-            cache.set(f'file_info_{file_id}', file, 60*60*24)
+            cache.set(f'file_info_{file_id}', file, 60 * 60 * 24)
         except Exception as e:
             print('get file is error: %s' % e)
             return JsonResponse({
@@ -179,7 +180,7 @@ def get_video_info(request, file_id):
     else:
         try:
             video = FileInfo.objects.get(file_id=file_id)
-            cache.set(f'file_info_{file_id}', video, 60*60*24)
+            cache.set(f'file_info_{file_id}', video, 60 * 60 * 24)
         except Exception as e:
             print('get video is error: %s' % e)
             return JsonResponse({
@@ -239,10 +240,7 @@ def save_share(request):
         copy_file(file_obj, user, save_folder_id)
     user.use_space = user.use_space + total_size
     user.save()
-    cache.set(f'user_${user.user_id}', user, 60*60*24)
-    cache.delete(f'file_user_list_${user.user_id}_${save_folder_id}')
-    cache.delete(f'admin_file_list_${save_folder_id}')
-    cache.delete(f'user_list')
+    cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
     return JsonResponse({
         'status': 'success',
         'code': 200,
@@ -272,7 +270,7 @@ def create_download_url(request, file_id):
     else:
         try:
             file = FileInfo.objects.get(file_id=file_id)
-            cache.set(f'file_info_{file_id}', file, 60*60*24)
+            cache.set(f'file_info_{file_id}', file, 60 * 60 * 24)
         except Exception as e:
             print(e)
             return JsonResponse({
