@@ -178,11 +178,10 @@ def create_video_file(merged_file, file_name, file_id):
     # 构建 FFmpeg 命令
     command = (
         '/usr/local/bin/ffmpeg -i {} -c:v libx264 -c:a aac -strict -2 '
-        '-f hls -hls_time 300 -hls_list_size 0 {}'
+        '-f hls -hls_time 5 -hls_list_size 0 {}'
     ).format(video_path, m3u8_path)
     # 执行命令
     subprocess.call(command, shell=True)
-    # print(m3u8_path)
     # 读取 M3U8 文件内容
     with open(m3u8_path, 'rb') as m3u8_file:
         m3u8_content = m3u8_file.read()
