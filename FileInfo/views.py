@@ -136,8 +136,6 @@ def newFoloder(request):
         user_id=user,
         folder_type=1
     )
-    if cache.get(f'admin_file_list_${data.get("pid")}'):
-        cache.delete(f'admin_file_list_${data.get("pid")}')
     result = {
         'code': 200,
         'data': 'null'
@@ -177,8 +175,6 @@ def rename(request):
     file.save()
     # 重命名，删除之前的缓存
     cache.set(f'file_info_${file.file_id}', file, 60 * 60)
-    if cache.get(f'admin_file_list_${file.file_pid}'):
-        cache.delete(f'admin_file_list_${file.file_pid}')
     return JsonResponse({
         'code': 200,
         'data': 'rename the file is success'
@@ -275,8 +271,6 @@ def change_file_folder(request):
         file.file_pid = data['pid']
         file.save()
         cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
-    cache.delete(f'admin_file_list_${old_pid}')
-    cache.delete(f'admin_file_list_${data["pid"]}')
     return JsonResponse({
         'code': 200,
         'data': 'move file is success'
@@ -323,7 +317,6 @@ def del_file(request):
         file.recovery_time = now
         file.save()
         cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
-        cache.delete(f'admin_file_list_${file.file_pid}')
         # 进入回收站的同时，需要将相关联的分享删除
         file_share_list = FileShare.objects.filter(file_id=file)
         for file_share in file_share_list:
@@ -390,7 +383,6 @@ def upload_file(request):
     status = 'uploading'
     # 分片的名字
     filename = f"{fileId}_{chunk_number}"
-    # print('-----> filename ----',filename)
     try:
         fileList = FileInfo.objects.filter(file_md5=fileMd5)
     except Exception as e:
@@ -430,7 +422,6 @@ def upload_file(request):
             file_type=file_type,
             status=2
         )
-        cache.delete(f'admin_file_list_${file_Pid}')
         return JsonResponse({
             'code': 200,
             'data': {
@@ -482,7 +473,6 @@ def upload_file(request):
             file_type=file_type,
             status=0
         )
-        cache.delete(f'admin_file_list_${file_Pid}')
         user.use_space = user.use_space + int(file_size)
         user.save()
         cache.set(f'user_${user.user_id}', user, 60 * 60 * 24)
