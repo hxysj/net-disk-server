@@ -26,6 +26,8 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from django.db.models import Q
 import math
+import re
+import time
 
 
 # 获取主页显示的数据，分页显示
@@ -527,18 +529,38 @@ def pause_uploader(request):
 
 # 获得视频的内容，进行预览
 def get_video_info(request, file_id):
+    # 增加缓存key
+    cache_key = f'video_content_{file_id}'
+    
     # 判断是获取m3u8文件还是读取具体的文件内容
     if file_id.endswith('.ts'):
-        # print(file_id)
+        # 增加ts文件缓存
+        ts_cache_key = f'ts_content_{file_id}'
+        ts_content = cache.get(ts_cache_key)
+        if ts_content:
+            return HttpResponse(ts_content, content_type='application/octet-stream')
+            
         media_dir = str(settings.MEDIA_ROOT)
-        with open(os.path.join(media_dir, 'file', file_id), 'rb') as f:
+        # 使用更大的buffer size提升读取效率
+        with open(os.path.join(media_dir, 'file', file_id), 'rb', buffering=8192) as f:
             ts_file_content = f.read()
+        
+        # 缓存ts文件内容,设置较短的过期时间
+        cache.set(ts_cache_key, ts_file_content, 300)  # 5分钟
         return HttpResponse(ts_file_content, content_type='application/octet-stream')
+
+    # 检查视频内容缓存
+    video_content = cache.get(cache_key)
+    if video_content:
+        return HttpResponse(video_content, content_type='application/octet-stream')
+
+    # 获取视频文件信息
     if cache.get(f'file_info_${file_id}'):
         video = cache.get(f'file_info_${file_id}')
     else:
         try:
             video = FileInfo.objects.get(file_id=file_id)
+            # 缓存文件信息24小时
             cache.set(f'file_info_${file_id}', video, 60 * 60 * 24)
         except Exception as e:
             print('get video is error: %s' % e)
@@ -546,13 +568,54 @@ def get_video_info(request, file_id):
                 'code': 404,
                 'error': 'get video is error'
             }, status=404)
-    video_file = video.file_path.read()
-    # print(video_file)
-    return HttpResponse(video_file, content_type='application/octet-stream')
+
+    # 使用流式响应处理大文件
+    def file_iterator(file_obj, chunk_size=8192):
+        while True:
+            chunk = file_obj.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    # 对于小文件直接返回
+    if video.file_size < 10 * 1024 * 1024:  # 小于10MB
+        video_content = video.file_path.read()
+        cache.set(cache_key, video_content, 3600)  # 缓存1小时
+        return HttpResponse(video_content, content_type='application/octet-stream')
+    
+    # 大文件使用流式响应
+    response = StreamingHttpResponse(
+        file_iterator(video.file_path),
+        content_type='application/octet-stream'
+    )
+    response['Accept-Ranges'] = 'bytes'
+    
+    # 添加断点续传支持
+    range_header = request.META.get('HTTP_RANGE', '').strip()
+    if range_header:
+        range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        if range_match:
+            start = int(range_match.group(1))
+            end = int(range_match.group(2)) if range_match.group(2) else video.file_size - 1
+            if start >= 0:
+                video.file_path.seek(start)
+                response['Content-Range'] = f'bytes {start}-{end}/{video.file_size}'
+                response.status_code = 206
+
+    return response
 
 
 # 获取文件内容
 def get_file(request, file_id):
+    # 增加文件内容缓存key
+    cache_key = f'file_content_{file_id}'
+    
+    # 检查文件内容缓存
+    file_content = cache.get(cache_key)
+    if file_content:
+        return HttpResponse(file_content, content_type='application/octet-stream')
+
+    # 获取文件信息
     if cache.get(f'file_info_${file_id}'):
         file = cache.get(f'file_info_${file_id}')
     else:
@@ -564,18 +627,71 @@ def get_file(request, file_id):
             return JsonResponse({
                 'data': 'get file is error'
             }, status=500)
-    if file.file_type == 5:
-        # 判断文件为doc、docx文件，讲doc文件的文件流转换成docx的文件流
-        # 使用aspose-words进行转换会有水印
-        file_stream = BytesIO(file.file_path.read())
-        doc = aw.Document(file_stream)
-        docx_blob_stream = BytesIO()
-        doc.save(docx_blob_stream, aw.SaveFormat.DOCX)
-        docx_blob_stream.seek(0)
-        file_content = docx_blob_stream.getvalue()
-    else:
+
+    # 使用流式响应处理大文件
+    def file_iterator(file_obj, chunk_size=8192):
+        while True:
+            chunk = file_obj.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    # 处理不同类型的文件
+    if file.file_type == 5:  # doc/docx文件
+        try:
+            # 使用缓存存储转换后的docx文件
+            docx_cache_key = f'docx_content_{file_id}'
+            docx_content = cache.get(docx_cache_key)
+            if docx_content:
+                return HttpResponse(docx_content, content_type='application/octet-stream')
+
+            # 转换doc文件
+            file_stream = BytesIO(file.file_path.read())
+            doc = aw.Document(file_stream)
+            docx_blob_stream = BytesIO()
+            doc.save(docx_blob_stream, aw.SaveFormat.DOCX)
+            docx_blob_stream.seek(0)
+            file_content = docx_blob_stream.getvalue()
+            
+            # 缓存转换后的文件内容
+            cache.set(docx_cache_key, file_content, 60 * 60)  # 1小时
+            return HttpResponse(file_content, content_type='application/octet-stream')
+        except Exception as e:
+            print('convert doc file error:', e)
+            # 转换失败时返回原始文件
+            file_content = file.file_path.read()
+            return HttpResponse(file_content, content_type='application/octet-stream')
+    
+    # 对于小文件直接返回并缓存
+    if file.file_size < 10 * 1024 * 1024:  # 小于10MB
         file_content = file.file_path.read()
-    return HttpResponse(file_content, content_type='application/octet-stream')
+        cache.set(cache_key, file_content, 3600)  # 缓存1小时
+        return HttpResponse(file_content, content_type='application/octet-stream')
+    
+    # 大文件使用流式响应
+    response = StreamingHttpResponse(
+        file_iterator(file.file_path),
+        content_type='application/octet-stream'
+    )
+    response['Accept-Ranges'] = 'bytes'
+    
+    # 添加断点续传支持
+    range_header = request.META.get('HTTP_RANGE', '').strip()
+    if range_header:
+        range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        if range_match:
+            start = int(range_match.group(1))
+            end = int(range_match.group(2)) if range_match.group(2) else file.file_size - 1
+            if start >= 0:
+                file.file_path.seek(start)
+                response['Content-Range'] = f'bytes {start}-{end}/{file.file_size}'
+                response.status_code = 206
+
+    # 添加文件下载相关头信息
+    response['Content-Disposition'] = f'attachment; filename="{file.file_name}"'
+    response['Content-Length'] = file.file_size
+    
+    return response
 
 
 # 判断文件是什么类型
@@ -788,39 +904,114 @@ def create_download_url(request, file_id):
 
 
 def download(request, url_base64, filename):
-    cipher_suite = Fernet(settings.FERNET_KEY)
+    # 增加下载缓存key
+    cache_key = f'download_{url_base64}'
+    
     if request.method != 'GET':
         return JsonResponse({
             'error': 'download file is error'
         }, status=404)
-    url_data = base64.b64decode(url_base64.encode('utf-8'))
-    file_url = cipher_suite.decrypt(url_data).decode('utf-8')
-    file_path = str(settings.BASE_DIR) + file_url
-    # print(settings.BASE_DIR,file_path,file_url)
-    if not os.path.exists(file_path):
-        print('not found the file')
+
+    try:
+        # 解密文件路径
+        cipher_suite = Fernet(settings.FERNET_KEY)
+        url_data = base64.b64decode(url_base64.encode('utf-8'))
+        file_url = cipher_suite.decrypt(url_data).decode('utf-8')
+        file_path = str(settings.BASE_DIR) + file_url
+
+        if not os.path.exists(file_path):
+            return JsonResponse({
+                'error': 'File not found'
+            }, status=404)
+
+        # 获取文件大小
+        file_size = os.path.getsize(file_path)
+
+        # 优化分块读取文件
+        def file_iterator(filepath, chunk_size=8192):
+            try:
+                with open(filepath, 'rb', buffering=chunk_size) as f:
+                    while True:
+                        chunk = f.read(chunk_size)
+                        if not chunk:
+                            break
+                        yield chunk
+            except Exception as e:
+                print(f'Error reading file: {e}')
+                raise
+
+        # 创建流式响应
+        response = StreamingHttpResponse(
+            file_iterator(file_path),
+            content_type='application/octet-stream'
+        )
+
+        # 添加断点续传支持
+        range_header = request.META.get('HTTP_RANGE', '').strip()
+        if range_header:
+            range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+            if range_match:
+                start = int(range_match.group(1))
+                end = int(range_match.group(2)) if range_match.group(2) else file_size - 1
+                if start >= 0:
+                    # 打开文件并移动到指定位置
+                    def range_iterator(start, end, chunk_size=8192):
+                        with open(file_path, 'rb') as f:
+                            f.seek(start)
+                            remaining = end - start + 1
+                            while remaining > 0:
+                                chunk_size = min(chunk_size, remaining)
+                                data = f.read(chunk_size)
+                                if not data:
+                                    break
+                                remaining -= len(data)
+                                yield data
+
+                    response = StreamingHttpResponse(
+                        range_iterator(start, end),
+                        status=206,
+                        content_type='application/octet-stream'
+                    )
+                    response['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+                    response['Content-Length'] = end - start + 1
+
+        # 设置响应头
+        response['Accept-Ranges'] = 'bytes'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        if not range_header:
+            response['Content-Length'] = file_size
+
+        # 处理m3u8文件
+        if file_path.endswith('.m3u8'):
+            video_path = merge_m3u8(file_path)
+            if video_path:
+                response = StreamingHttpResponse(
+                    file_iterator(video_path),
+                    content_type='application/octet-stream'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
+                response['Content-Length'] = os.path.getsize(video_path)
+                
+                # 使用线程异步删除临时文件
+                def delete_temp_file():
+                    try:
+                        time.sleep(1)  # 等待传输完成
+                        os.remove(video_path)
+                    except Exception as e:
+                        print(f'Error deleting temp file: {e}')
+                
+                threading.Thread(target=delete_temp_file).start()
+            else:
+                return JsonResponse({'error': 'Failed to process video file'}, status=500)
+
+        return response
+
+    except Exception as e:
+        print(f'Download error: {e}')
         return JsonResponse({
-            'error': 'download file is error'
-        }, status=404)
-
-    # 分块读取文件
-    def file_iterator(filepath, deleteFile=False, chunk_size=512):
-        print(filepath)
-        with open(filepath, 'rb') as f:
-            while chunk := f.read(chunk_size):
-                yield chunk
-        if deleteFile:
-            os.remove(filepath)
-
-    if not file_path.endswith('.m3u8'):
-        response = StreamingHttpResponse(file_iterator(file_path))
-    else:
-        video_path = merge_m3u8(file_path)
-        response = StreamingHttpResponse(file_iterator(video_path, True))
-        # os.remove(video_path)
-    response['Content-Type'] = 'application/octet-stream'
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    return response
+            'error': 'Download failed',
+            'detail': str(e)
+        }, status=500)
 
 
 # 获取m3u8文件，合成视频数据流
