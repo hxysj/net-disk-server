@@ -1,4 +1,6 @@
 import math
+from shutil import disk_usage
+
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from tools.logging_dec import check_admin, logging_check
 from FileInfo.models import FileInfo
@@ -13,6 +15,7 @@ from django.core.files.storage import default_storage
 import subprocess
 from django.core.cache import cache
 from django.db.models import Q
+import shutil
 
 
 # 获得文件信息
@@ -273,10 +276,14 @@ def get_sys_settings(request):
                 'error': 'get user defautl space is error'
             }, status=404)
     #
+    disk_usage = shutil.disk_usage('/')
     space = config.user_space
     return JsonResponse({
         'status': 'success',
-        'useInitUseSpace': space
+        'useInitUseSpace': space,
+        'sys_total': disk_usage.total,
+        'sys_used': disk_usage.used,
+        'sys_free': disk_usage.free
     })
 
 
