@@ -303,6 +303,12 @@ class FileTransferConsumer(AsyncWebsocketConsumer):
                 'fileName': file_name
             }))
             return
+        # 检测系统空间是否足够继续存放文件，如果不够则不允许上传文件
+        disk_usage = shutil.disk_usage('/')
+        if disk_usage.free <= disk_usage.total * 0.05:
+            await self.send(json.dumps({'code': 4000, 'error': '上传出现错误，请联系管理员解决后再进行尝试！'}))
+            await self.close()
+            return
         # 对切片文件进行保存
         base_dir = str(settings.BASE_DIR)
         if not os.path.exists(os.path.join(base_dir, 'chunks', file_id)):
