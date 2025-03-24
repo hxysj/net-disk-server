@@ -17,7 +17,10 @@ import subprocess
 from django.utils import timezone
 from django.core.cache import cache
 import math
-
+import re
+from io import BytesIO
+import aspose.words as aw
+import time
 
 # 获得分享信息
 def get_share_file(request, share_id):
@@ -147,21 +150,91 @@ def load_file_list(request):
 # 获得文件的内容信息
 # @code_check
 def get_file(request, file_id):
-    # 查看文件信息是否有缓存
-    if cache.get(f'file_info_{file_id}'):
-        file = cache.get(f'file_info_{file_id}')
+    # 增加文件内容缓存key
+    cache_key = f'file_content_{file_id}'
+    
+    # 检查文件内容缓存
+    file_content = cache.get(cache_key)
+    if file_content:
+        return HttpResponse(file_content, content_type='application/octet-stream')
+
+    # 获取文件信息
+    if cache.get(f'file_info_${file_id}'):
+        file = cache.get(f'file_info_${file_id}')
     else:
-        # 没有缓存则从数据库中获得
         try:
             file = FileInfo.objects.get(file_id=file_id)
-            cache.set(f'file_info_{file_id}', file, 60 * 60 * 24)
+            cache.set(f'file_info_${file_id}', file, 60 * 60 * 24)
         except Exception as e:
             print('get file is error: %s' % e)
             return JsonResponse({
                 'data': 'get file is error'
             }, status=500)
-    file_content = file.file_path.read()
-    return HttpResponse(file_content, content_type='application/octet-stream')
+
+    # 使用流式响应处理大文件
+    def file_iterator(file_obj, chunk_size=8192):
+        while True:
+            chunk = file_obj.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    # 处理不同类型的文件
+    if file.file_type == 5:  # doc/docx文件
+        try:
+            # 使用缓存存储转换后的docx文件
+            docx_cache_key = f'docx_content_{file_id}'
+            docx_content = cache.get(docx_cache_key)
+            if docx_content:
+                return HttpResponse(docx_content, content_type='application/octet-stream')
+
+            # 转换doc文件
+            file_stream = BytesIO(file.file_path.read())
+            doc = aw.Document(file_stream)
+            docx_blob_stream = BytesIO()
+            doc.save(docx_blob_stream, aw.SaveFormat.DOCX)
+            docx_blob_stream.seek(0)
+            file_content = docx_blob_stream.getvalue()
+            
+            # 缓存转换后的文件内容
+            cache.set(docx_cache_key, file_content, 60 * 60)  # 1小时
+            return HttpResponse(file_content, content_type='application/octet-stream')
+        except Exception as e:
+            print('convert doc file error:', e)
+            # 转换失败时返回原始文件
+            file_content = file.file_path.read()
+            return HttpResponse(file_content, content_type='application/octet-stream')
+    
+    # 对于小文件直接返回并缓存
+    if file.file_size < 10 * 1024 * 1024:  # 小于10MB
+        file_content = file.file_path.read()
+        cache.set(cache_key, file_content, 3600)  # 缓存1小时
+        return HttpResponse(file_content, content_type='application/octet-stream')
+    
+    # 大文件使用流式响应
+    response = StreamingHttpResponse(
+        file_iterator(file.file_path),
+        content_type='application/octet-stream'
+    )
+    response['Accept-Ranges'] = 'bytes'
+    
+    # 添加断点续传支持
+    range_header = request.META.get('HTTP_RANGE', '').strip()
+    if range_header:
+        range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        if range_match:
+            start = int(range_match.group(1))
+            end = int(range_match.group(2)) if range_match.group(2) else file.file_size - 1
+            if start >= 0:
+                file.file_path.seek(start)
+                response['Content-Range'] = f'bytes {start}-{end}/{file.file_size}'
+                response.status_code = 206
+
+    # 添加文件下载相关头信息
+    response['Content-Disposition'] = f'attachment; filename="{file.file_name}"'
+    response['Content-Length'] = file.file_size
+    
+    return response
 
 
 # 获得视频的内容，进行预览
