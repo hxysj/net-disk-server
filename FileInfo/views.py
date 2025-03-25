@@ -15,7 +15,7 @@ from django.core.files.uploadedfile import UploadedFile
 import subprocess
 from PIL import Image
 import threading
-from utils.utils import search_file_children, sum_file_size, get_search_file_list
+from utils.utils import search_file_children, sum_file_size, get_search_file_list,decrypt_data, get_file_type
 from django.core.files.storage import default_storage
 from cryptography.fernet import Fernet
 import base64
@@ -28,6 +28,7 @@ from django.db.models import Q
 import math
 import re
 import time
+import zlib
 
 
 # 获取主页显示的数据，分页显示
@@ -373,7 +374,8 @@ def upload_file(request):
         })
     user = request.my_user
     # 获得分片
-    chunk = request.FILES.get('file')
+    # chunk = request.FILES.get('file')
+    chunk_base64 = request.POST.get('fileBase64')
     # 当前的上传次数
     chunk_number = request.POST.get('chunkIndex')
     # 总片数
@@ -459,22 +461,16 @@ def upload_file(request):
     if not os.path.exists(os.path.join(base_dir, 'chunks', fileId)):
         os.mkdir(os.path.join(base_dir, 'chunks', fileId))
     path = os.path.join(base_dir, 'chunks', fileId, filename)
-    # 保存分片
-    # 读取上传文件的内容
-    # encrypted_data = chunk.read()
-    # # Base64 解码密文
-    # encrypted_data = encrypted_data.decode('utf-8')
-    # try:
-    #     chunk_data = decrypt_data(encrypted_data)
-    #     # 判断请求是否取消
-    #     if not cache.get(f'file_uploader_${fileId}'):
-    #         return JsonResponse({'error': '取消请求！'}, status=409)
-    #     # 将解密后的数据保存为文件
-    with open(path, 'wb') as f:
-        f.write(chunk.read())
-    # except (ValueError, KeyError) as e:
-    #     print(e)
-    #     return JsonResponse({'error': '非法请求！'}, status=500)
+
+    try:
+        chunk_data = decrypt_data(chunk_base64, settings.ENCRYPTION_KEY, settings.IV_KEY)
+        # 对分片内容解压缩
+        chunk_data = decompress_data(chunk_data)
+        with open(path, 'wb') as f:
+            f.write(chunk_data)
+    except (ValueError, KeyError) as e:
+        print(e)
+        return JsonResponse({'code': 4000, 'error': '非法请求！', 'index': chunk_number})
 
     # 当分片都上传完成，合并分片
     content_type = request.POST.get('fileType')
@@ -713,34 +709,6 @@ def get_file(request, file_id):
     response['Content-Length'] = file.file_size
     
     return response
-
-
-# 判断文件是什么类型
-def get_file_type(filename):
-    _, ext = os.path.splitext(filename)
-    ext = ext.lower()  # 转换为小写以确保匹配
-    # print('------------file type is :----',filename)
-    # 根据扩展名判断文件类型
-    if ext in ('.mp4', '.avi', '.mov', '.wmv', '.flv'):
-        return 1
-    elif ext in ('.mp3', '.wav', '.aac', '.ogg'):
-        return 2
-    elif ext in ('.jpg', '.jpeg', '.png', '.gif', '.bmp'):
-        return 3
-    elif ext == '.pdf':
-        return 4
-    elif ext == '.doc' or ext == '.docx':
-        return 5
-    elif ext == '.xls' or ext == '.xlsx':
-        return 6
-    elif ext == '.txt':
-        return 7
-    elif ext in ('.py', '.java', '.css', '.js', '.html', '.cpp', '.c', '.rb', '.sh'):
-        return 8
-    elif ext == '.zip':
-        return 9
-    else:
-        return 10
 
 
 # 对文件进行合成
@@ -1047,3 +1015,12 @@ def merge_m3u8(m3u8_file_path):
         print('concat video is error :%s' % e)
         return False
     return os.path.join(settings.BASE_DIR, 'chunks', file_name_header + '.mp4')
+
+
+def decompress_data(data):
+    try:
+        # 使用zlib解压gzip数据，wbits=16+zlib.MAX_WBITS用于处理gzip格式
+        return zlib.decompress(data, 16+zlib.MAX_WBITS)
+    except Exception as e:
+        print(f"Decompression error: {e}")
+        return data  # 如果解压失败则返回原始数据
