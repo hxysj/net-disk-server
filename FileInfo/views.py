@@ -267,7 +267,7 @@ def change_file_folder(request):
         if check_file_name(file.file_name, data['pid'], request.my_user, file.file_id):
             return JsonResponse({
                 'code': 4000,
-                'error': '同级目录下名称已存在，请更改目录名称！'
+                'error': '改目录下有相同名称的文件/目录，请先更改名称再进行移动！'
             })
         old_pid = file.file_pid
         file.file_pid = data['pid']
@@ -331,22 +331,37 @@ def del_file(request):
         'code': 200,
         'error': 'del file is success'
     })
-
-
 # 解密文件块函数
-def decrypt_data(encrypted_data):
-    # 密钥和初始化向量（IV）
-    encryption_key = b'secret-key123456'  # 确保是16字节的密钥
-    iv = b'1234567890113456'  # 确保是16字节的IV
-    # Base64 解码
-    encrypted_data_bytes = base64.b64decode(encrypted_data)
-    # 创建 AES 解密器
-    cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
-    # 解密数据并去除填充
-    decrypted_data = unpad(cipher.decrypt(encrypted_data_bytes), AES.block_size)
+# def decrypt_data(encrypted_data):
+#     # 密钥和初始化向量（IV）
+#     encryption_key = b'secret-key123456'  # 确保是16字节的密钥
+#     iv = b'1234567890113456'  # 确保是16字节的IV
+#     # Base64 解码
+#     encrypted_data_bytes = base64.b64decode(encrypted_data)
+#     # 创建 AES 解密器
+#     cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
+#     # 解密数据并去除填充
+#     decrypted_data = unpad(cipher.decrypt(encrypted_data_bytes), AES.block_size)
 
-    return decrypted_data
+#     return decrypted_data
 
+# 获得下一个文件名
+def get_next_filename(file_list):
+    if not file_list:
+        return None
+    base_name, extension = os.path.splitext(file_list[0])
+    base_name = re.sub(r'\(\d+\)$', '', base_name)
+    if (base_name + extension) not in file_list:
+        return f'{base_name}{extension}'
+    min_version = 1
+    file_list.remove(f'{base_name}{extension}')
+    version_list = set(re.search(r'\((\d+)\)', file).group(1)
+                       for file in file_list
+                       if re.search(r'\((\d+)\)', file))
+
+    while str(min_version) in version_list:
+        min_version += 1
+    return f'{base_name}({min_version}){extension}'
 
 # 文件分片上传
 @logging_check
@@ -402,10 +417,16 @@ def upload_file(request):
         file_category = 4
     else:
         file_category = 5
+
+    # 检测文件名字是否重复
+    first_name, extension_name = os.path.splitext(file_name)
+    file_name_list = list(FileInfo.objects.filter(file_name__regex=rf"^{first_name}(\((\d+)\))?{extension_name}", user_id=user,file_pid=file_Pid).values())
+    file_name_list = [file['file_name'] for file in file_name_list]
+    temp_name = get_next_filename(file_name_list)
+    if temp_name:
+        file_name = temp_name
     # ---------------------------------------------
     # 如果md5存在，则有相同文件存在，不需要上传一次，直接公用一个
-    # print('----->',fileList)
-    # print('------->chunk number --->',chunk_number,total_chunks)
     if len(fileList) != 0:
         file = fileList[0]
         user.use_space = user.use_space + int(file_size)
@@ -440,20 +461,20 @@ def upload_file(request):
     path = os.path.join(base_dir, 'chunks', fileId, filename)
     # 保存分片
     # 读取上传文件的内容
-    encrypted_data = chunk.read()
-    # Base64 解码密文
-    encrypted_data = encrypted_data.decode('utf-8')
-    try:
-        chunk_data = decrypt_data(encrypted_data)
-        # 判断请求是否取消
-        if not cache.get(f'file_uploader_${fileId}'):
-            return JsonResponse({'error': '取消请求！'}, status=409)
-        # 将解密后的数据保存为文件
-        with open(path, 'wb') as f:
-            f.write(chunk_data)
-    except (ValueError, KeyError) as e:
-        print(e)
-        return JsonResponse({'error': '非法请求！'}, status=500)
+    # encrypted_data = chunk.read()
+    # # Base64 解码密文
+    # encrypted_data = encrypted_data.decode('utf-8')
+    # try:
+    #     chunk_data = decrypt_data(encrypted_data)
+    #     # 判断请求是否取消
+    #     if not cache.get(f'file_uploader_${fileId}'):
+    #         return JsonResponse({'error': '取消请求！'}, status=409)
+    #     # 将解密后的数据保存为文件
+    with open(path, 'wb') as f:
+        f.write(chunk.read())
+    # except (ValueError, KeyError) as e:
+    #     print(e)
+    #     return JsonResponse({'error': '非法请求！'}, status=500)
 
     # 当分片都上传完成，合并分片
     content_type = request.POST.get('fileType')
@@ -752,35 +773,18 @@ def composite_file(total_chunks, fileId, file_type, content_type, file_name, fil
         except Exception as e:
             print('get file is error: %s' % e)
 
-    # 计算出来的md5值不同
-    # 合成成功后计算文件的md5值
-    # md5_hash = hashlib.md5()
-    # chunk_size = 1024 * 1024
-    # i = 0
-    # while True:
-    #     data = merged_file.read(chunk_size)
-    #     if not data:
-    #         break
-    #     md5_hash.update(data)
-    # file_md5_compile = md5_hash.hexdigest()
-    # # 判断合成后的文件的md5值和上传的文件的md5值是否相同，如果不同则文件传输出现错误，转码失败
-    # print(file_md5, file_md5_compile)
-    # 计算完成后将file的指针重新设置为0
-    # merged_file.seek(0)
     if file_type != 1:
         obj = create_others_file(file_type, fileId, file_name, merged_file, content_type)
     else:
         obj = create_video_file(merged_file, file_name, fileId)
     uploaded_file = obj['upload_file']
     cover_file = obj['cover']
-    # print('-------->>>>>',obj)
-
     file.file_path = uploaded_file
     file.file_cover = cover_file
     file.status = 2
     file.save()
     cache.set(f'file_info_${fileId}', file, 60 * 60 * 24)
-
+    cache.delete(f'file_user_list_${file.user_id.user_id}_${file.file_pid}')
 
 # 对不是视频文件进行操作
 def create_others_file(file_type, fileId, file_name, merged_file, content_type):
@@ -816,20 +820,17 @@ def create_others_file(file_type, fileId, file_name, merged_file, content_type):
 
 # 对视频进行操作
 def create_video_file(merged_file, file_name, fileId):
-    # print(file_name, fileId)
     # 保存的根本路径
     base_dir = str(settings.BASE_DIR)
     # 是视频文件，则合成后，对视频进行分割
-    # print(file_name)
     video_path = os.path.join(base_dir, 'chunks', fileId + '.' + file_name.split('.')[-1])
     # 将视频文件保存下载 - 临时
     with open(video_path, 'wb') as f:
-        # 将 BytesIO 对象的内容写入文件
         f.write(merged_file.read())
     cover_path = os.path.join(base_dir, 'chunks', fileId + '.jpg')
     # 对视频生成缩略图
     command = [
-        'ffmpeg', '-i',
+        '/usr/local/bin/ffmpeg', '-i',
         video_path, '-ss',
         '00:00:01', '-vframes',
         '1', cover_path
@@ -848,7 +849,7 @@ def create_video_file(merged_file, file_name, fileId):
     m3u8_path = os.path.join(base_dir, 'media', 'file', fileId + '.m3u8')
     # 构建 FFmpeg 命令
     command = (
-        'ffmpeg -i {} -c:v libx264 -c:a aac -strict -2 '
+        '/usr/local/bin/ffmpeg -i {} -c:v libx264 -c:a aac -strict -2 '
         '-f hls -hls_time 300 -hls_list_size 0 {}'
     ).format(video_path, m3u8_path)
     # 执行命令
@@ -892,9 +893,7 @@ def create_download_url(request, file_id):
             })
     file_path = file.file_path
     file_url = default_storage.url(file_path).encode('utf-8')
-    # print(file_url)
     data = base64.b64encode(cipher_suite.encrypt(file_url)).decode('utf-8')
-    # print(data)
     return JsonResponse({
         'data': data,
         'status': 'success',
@@ -906,7 +905,7 @@ def create_download_url(request, file_id):
 def download(request, url_base64, filename):
     # 增加下载缓存key
     cache_key = f'download_{url_base64}'
-    
+
     if request.method != 'GET':
         return JsonResponse({
             'error': 'download file is error'
