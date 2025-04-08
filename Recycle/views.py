@@ -8,7 +8,8 @@ from utils.utils import search_file_children, sum_file_size, get_search_file_lis
 from django.conf import settings
 from django.core.cache import cache
 import math
-
+from django.utils import timezone
+from datetime import timedelta
 
 @logging_check
 def load_recycle_list(request):
@@ -17,8 +18,10 @@ def load_recycle_list(request):
     page_now = int(request.GET.get('pageNo'))
     # 获得页数
     page_size = int(request.GET.get('pageSize'))
+    now_time = timezone.now()
+    now_minus_10_days = now_time - timedelta(days=10)
     try:
-        files = FileInfo.objects.filter(user_id=user, del_flag=1).order_by('-recovery_time')[
+        files = FileInfo.objects.filter(user_id=user, del_flag=1,recovery_time__gt=now_minus_10_days).order_by('-recovery_time')[
                 (page_now - 1) * page_size:page_now * page_size]
         total_num = FileInfo.objects.filter(user_id=user, del_flag=1).count()
     except Exception as e:
